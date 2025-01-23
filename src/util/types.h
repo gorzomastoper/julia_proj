@@ -39,6 +39,8 @@ typedef str<u64>    str64;
 #define var auto
 #define let auto
 
+#define global_variable static
+
 template<typename... T>
 using tuple = std::tuple<T...>;
 

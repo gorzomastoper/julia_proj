@@ -3,6 +3,7 @@
 #define WIN32_LEAN_AND_MEAN //This will shrink the inclusion of windows.h to the essential functions
 #include <windows.h>
 #include "util/types.h"
+#include "util/memory_management.h" //NOTE(DH): Include memory buffer manager
 #include "dmath.h"
 
 //NOTE(DH): This is PIX support
@@ -63,6 +64,50 @@ struct scene_constant_buffer
 };
 static_assert((sizeof(scene_constant_buffer) % 256) == 0, "Constant Buffer size must be 256-byte aligned");
 
+struct descriptor_heap {
+	ComPtr<ID3D12DescriptorHeap>	addr;
+	u32 							descriptor_size;
+};
+
+struct compute_buffer
+{
+	ComPtr<ID3D12Resource>	addr;
+	D3D12_CPU_DESCRIPTOR_HANDLE 	view;
+	u32 					index;
+	u32 					width;
+	u32 					height;
+	DXGI_FORMAT 			format;
+};
+
+struct compute_constant_buffer 
+{
+	ComPtr<ID3D12Resource>		addr;
+	D3D12_CPU_DESCRIPTOR_HANDLE view;
+	u32 						index;
+	u32 						size; // NOTE(DH): Size is always should be 256 bytes (CBV boundaries)
+	scene_constant_buffer		cb_scene_data;
+	u8*							cb_data_begin;
+	DXGI_FORMAT 				format;
+};
+
+struct compute_c_buffer
+{
+	ComPtr<ID3D12Resource>	constant_buffer;
+};
+
+struct compute_pipeline {
+	ID3D12RootSignature *root_signature;
+	ComPtr<ID3D12PipelineState> state;
+	ComPtr<ID3DBlob> shader_blob;
+};
+
+struct compute_rendering_stage {
+	descriptor_heap			dsc_heap;
+	compute_pipeline 		compute_pipeline;
+	compute_buffer 			back_buffer;
+	compute_constant_buffer c_buffer;
+};
+
 struct rendered_entity
 {
 	ComPtr<ID3D12GraphicsCommandList>	bundle;
@@ -117,15 +162,22 @@ struct dx_context
 	uint64_t 			g_frame_fence_values[g_NumFrames] = {};
 	HANDLE 				g_fence_event;
 
+	f32					time_elapsed; // NOTE(DH): In seconds
+	f32					dt_for_frame;
+
+	memory_arena dx_memory_arena;
+
 	u32 entity_count;
-	rendered_entity entities[32];
+	rendered_entity *entities;
+
+	compute_rendering_stage compute_stage;
 
 	//Window Handle
 	HWND g_hwnd;
 	//Window rectangle used to store window dimensions when in window mode
 	RECT g_wind_rect;
 
-	//NOTE: When you "signal" the Command Queue for a Frame, it means we set a new frame fence value 
+	//NOTE: When you "signal" the Command Queue for a Frame, it means we set a new frame fence value
 	//Other window state variables
 	bool g_vsync 				= true;
 	bool g_tearing_supported 	= false;
@@ -135,10 +187,47 @@ struct dx_context
 
 	//IMGUI STUFF
 	bool g_is_menu_active = true;
+
+	bool g_is_quitting = false;
 };
 
 void resize(dx_context *context, u32 width, u32 height);
-void dx_update(dx_context *context);
-void dx_render(dx_context *context);
-void flush(dx_context &context);
-dx_context init_dx(HWND hwnd);
+void update(dx_context *context);
+void render(dx_context *context, ComPtr<ID3D12GraphicsCommandList> command_list);
+ComPtr<ID3D12GraphicsCommandList> generate_command_buffer(dx_context *context);
+ComPtr<ID3D12GraphicsCommandList> generate_compute_command_buffer(dx_context *context);
+ComPtr<ID3D12GraphicsCommandList> generate_imgui_command_buffer(dx_context *context);
+
+void 							move_to_next_frame		(dx_context *context);
+void 							flush					(dx_context &context);
+void 							present					(dx_context *context, ComPtr<IDXGISwapChain4> swap_chain);
+dx_context 						init_dx					(HWND hwnd);
+ComPtr<IDXGISwapChain4> 		get_current_swapchain	(dx_context *context);
+CD3DX12_GPU_DESCRIPTOR_HANDLE 	get_uav(u32 uav_idx, ComPtr<ID3D12Device2> device, ComPtr<ID3D12DescriptorHeap> desc_heap);
+CD3DX12_GPU_DESCRIPTOR_HANDLE 	get_cbv(u32 cbv_idx, ComPtr<ID3D12Device2> device, ComPtr<ID3D12DescriptorHeap> desc_heap);
+
+compute_pipeline 				create_compute_pipeline	(ComPtr<ID3D12Device2> device, memory_arena *arena, ID3D12RootSignature *root_sig);
+compute_buffer 					create_compute_buffer	(ComPtr<ID3D12Device2> device, descriptor_heap dsc_heap, u32 width, u32 height, DXGI_FORMAT format);
+CD3DX12_CPU_DESCRIPTOR_HANDLE 	create_compute_descriptor_view	(u32 idx, ComPtr<ID3D12Device2> device, ID3D12DescriptorHeap *desc_heap, u32 desc_size, DXGI_FORMAT format, ID3D12Resource *p_resource);
+
+ComPtr<ID3D12Resource> 			allocate_data_on_gpu
+(
+	ComPtr<ID3D12Device2> 		device, 
+	D3D12_HEAP_TYPE 			heap_type, 
+	D3D12_TEXTURE_LAYOUT 		layout, 
+	D3D12_RESOURCE_FLAGS 		flags, 
+	D3D12_RESOURCE_STATES 		states, 
+	D3D12_RESOURCE_DIMENSION 	dim, 
+	u64 						width, 
+	u64 						height, 
+	DXGI_FORMAT 				format
+);
+
+descriptor_heap 				allocate_descriptor_heap(ComPtr<ID3D12Device2> device, D3D12_DESCRIPTOR_HEAP_TYPE heap_type, D3D12_DESCRIPTOR_HEAP_FLAGS flags, u32 count);
+CD3DX12_GPU_DESCRIPTOR_HANDLE 	get_gpu_handle_at(u32 index, ComPtr<ID3D12DescriptorHeap> desc_heap, u32 desc_size);
+CD3DX12_CPU_DESCRIPTOR_HANDLE 	get_cpu_handle_at(u32 index, ComPtr<ID3D12DescriptorHeap> desc_heap, u32 desc_size);
+
+compute_rendering_stage create_compute_rendering_stage(ComPtr<ID3D12Device2> device, D3D12_VIEWPORT viewport, memory_arena *arena);
+compute_buffer initialize_compute_resources(ComPtr<ID3D12Device2> device, u32 width, u32 height);
+compute_pipeline initialize_compute_pipeline(ComPtr<ID3D12Device2> device, memory_arena *arena);
+void record_compute_stage(ComPtr<ID3D12Device2> device, compute_rendering_stage stage, ComPtr<ID3D12GraphicsCommandList> command_list);

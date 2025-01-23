@@ -1,12 +1,21 @@
 #ifndef UNICODE
 #define UNICODE
+#include <combaseapi.h>
+#include <memoryapi.h>
+#include <propsys.h>
 #include <vcruntime_string.h>
+#include <winbase.h>
+#include <windef.h>
+#include <winuser.h>
 #endif
 
 #include <stdio.h>
 #include <cstdint>
+#include <mmdeviceapi.h>
+#include <Functiondiscoverykeys_devpkey.h>
 
 #include "util/types.h"
+#include "util/memory_management.h"
 #include "dx_backend.h"
 
 //NOTE(DH): ImGUI implementation import {
@@ -16,7 +25,7 @@
 #include "imgui-docking/backends/imgui_impl_win32.h"
 //NOTE(DH): ImGUI implementation import }
 
-#if 0
+#if DEBUG
 #define DX12_ENABLE_DEBUG_LAYER
 #endif
 
@@ -123,6 +132,25 @@ func toggle_fullscreen(HWND Window)
 }
 
 bool quiting = false;
+global_variable f64 GlobalPerfCountFrequency;
+global_variable f32 last_time;
+
+inline LARGE_INTEGER
+win32_get_wall_clock()
+{
+	LARGE_INTEGER Result;
+	QueryPerformanceCounter(&Result);
+	return(Result);
+}
+
+inline f32
+win32_get_seconds_elapsed(LARGE_INTEGER Start, LARGE_INTEGER End)
+{
+	f32 Result = ((f32)(End.QuadPart - Start.QuadPart) / 
+					 (f32)GlobalPerfCountFrequency);
+	
+	return(Result);
+}
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -146,8 +174,26 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 
 #ifdef USE_DX12
 			case WM_PAINT: {
-					dx_update(&directx_context);
-					dx_render(&directx_context);
+					f32 current_time = GetCurrentTime();
+					f32 delta_time = current_time - last_time;
+					last_time = current_time;
+
+					directx_context.dt_for_frame = delta_time * 0.001;
+					update(&directx_context);
+
+					auto triangle_cmd_list = generate_command_buffer(&directx_context);
+					auto imgui_cmd_list = generate_imgui_command_buffer(&directx_context);
+					auto compute_cmd_list = generate_compute_command_buffer(&directx_context);
+
+					//render(&directx_context, triangle_cmd_list);
+					render(&directx_context, compute_cmd_list);
+					render(&directx_context, imgui_cmd_list);
+
+					// Do not wait for frame, just move to the next one
+					auto render_target = get_current_swapchain(&directx_context);
+					present(&directx_context, render_target);
+    				move_to_next_frame(&directx_context);
+					quiting = directx_context.g_is_quitting;
 				} return 0;
 #endif
 
@@ -168,6 +214,12 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 				switch (key_code) {
 					case 'Q': {quiting = true; PostQuitMessage(0);} break;
 					case 'F': {toggle_fullscreen(directx_context.g_hwnd);} break;
+					// case VK_SPACE: 
+					// {
+					// 	WINDOWPLACEMENT placement;
+					// 	GetWindowPlacement(hwnd, &placement);
+					// 	placement.rcNormalPosition.;
+					// } break;
 					default: {
 						bool AltKeyWasDown = ((lParam & (1 << 29)) != 0);
 						if((key_code == VK_F4) && AltKeyWasDown) { quiting = true; }
@@ -191,7 +243,13 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow) {
 
+	// NOTE(DH): For dt time and taget frame rate things!
+	LARGE_INTEGER perf_count_frequency_result;
+	QueryPerformanceFrequency(&perf_count_frequency_result);
+	GlobalPerfCountFrequency = perf_count_frequency_result.QuadPart;
+
 #ifdef USE_DX12
+#if DEBUG //SHOW_CONSOLE
 	//Always enable the debug layer before doing anything DX12 related
 	//so all possible errors generated while creating DX12 objects
 	//are caught by the debug layter.
@@ -200,7 +258,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
         debugInterface->EnableDebugLayer();
 
-    #endif // _DEBUG
+#endif // _DEBUG
+#endif // _USE_DX12
 
     #if DEBUG //SHOW_CONSOLE
         AllocConsole();
@@ -228,6 +287,31 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     // printf("of5 = %u\n", *bk_state.components_data.get_ptr<u32>(of5));
     // printf("of6 = %u\n", *bk_state.components_data.get_ptr<u8>(of6));
     // printf("of7 = %llu\n", *bk_state.components_data.get_ptr<u64>(of7));
+
+	//NOTE(DH): Enumerate audio devices - START
+	LPWSTR device_id_name;
+	IMMDeviceCollection *audio_collection;
+	IMMDevice *devices[10];
+	IPropertyStore *p_props = NULL;
+	auto node = CoInitialize(NULL);
+	IMMDeviceEnumerator *pEnumerator = NULL;
+	node = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL, IID_PPV_ARGS(&pEnumerator));
+	node = pEnumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &audio_collection);
+
+	u32 num_devices = 0;
+	audio_collection->GetCount(&num_devices);
+
+	for(u32 i = 0; i < num_devices; ++i)
+	{
+		audio_collection->Item(i, &devices[i]);
+		devices[i]->GetId(&device_id_name);
+		devices[i]->OpenPropertyStore(STGM_READ, &p_props);
+
+		PROPVARIANT prop_name;
+		PropVariantInit(&prop_name);
+		node = p_props->GetValue(PKEY_Device_FriendlyName, &prop_name);
+	}
+	//NOTE(DH): Enumerate audio devices - END
 
     const wchar_t CLASS_NAME[]  = L"Sample Window Class";
 
@@ -257,8 +341,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     if (hwnd == NULL) {
         return 0;
     }
-
-	//move_files_from_folder();
 
 	directx_context.g_hwnd = hwnd;
 
@@ -309,6 +391,26 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     main_window_info.mouse_x = mpos.x;
     main_window_info.mouse_y = mpos.y;
 
+	LARGE_INTEGER last_counter = win32_get_wall_clock();
+
+	// NOTE(DH): Get and set window capability
+	i32 monitor_refresh_hz = 60;
+	HDC RefreshDC = GetDC(hwnd);
+
+#if 1
+			int win32_refresh_rate = GetDeviceCaps(RefreshDC,VREFRESH);
+#else
+			int win32_refresh_rate = monitor_refresh_hz;
+#endif
+	ReleaseDC(hwnd, RefreshDC);
+	if(win32_refresh_rate > 1)
+	{
+		monitor_refresh_hz = win32_refresh_rate;
+	}
+	f32 game_update_hz = (f32)monitor_refresh_hz;
+	f32 target_seconds_per_frame = 1.0f / (f32)game_update_hz;
+	last_time = GetCurrentTime(); // TODO(DH): Implement it like in DENGINE!!!
+
     while (quiting == false) {
         // POINT mpos = {};
         // GetCursorPos(&mpos);
@@ -316,10 +418,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         // main_window_info.mouse_x = mpos.x;
         // main_window_info.mouse_y = mpos.y;
 
+		// NOTE(DH): Set fixed delta time
+		directx_context.dt_for_frame = target_seconds_per_frame;
+
         MSG msg = {};
 
 #ifdef USE_DX12
-		while (msg.message != WM_QUIT) {
+		while (msg.message != WM_QUIT && quiting == false) {
 			if(PeekMessage(&msg,0,0,0,PM_REMOVE)) {
 				TranslateMessage(&msg);
 				DispatchMessage(&msg);
@@ -343,11 +448,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
         do_redraw(hwnd);
 #endif
-        //Sleep(5);
+
     }
 
 	//Make sure command queue has finished all in-flight commands before closing
 	flush(directx_context);
+
+	VirtualFree(directx_context.dx_memory_arena.base, directx_context.dx_memory_arena.size, MEM_RELEASE);
 
 	//Closing event handle
 	CloseHandle(directx_context.g_fence_event);
