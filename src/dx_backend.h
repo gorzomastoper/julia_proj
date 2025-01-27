@@ -5,6 +5,7 @@
 #include "util/types.h"
 #include "util/memory_management.h" //NOTE(DH): Include memory buffer manager
 #include "dmath.h"
+#define IMGUI_DEFINE_MATH_OPERATORS
 
 //NOTE(DH): This is PIX support
 
@@ -16,8 +17,6 @@
 #include <d3dcompiler.h>
 //#include <D3D12Window.h>
 #include <shellapi.h>//for CommandLineToArgvW .. getting command line arguments
-#include <assert.h>
-#include <algorithm>
 #include <chrono>
 
 #if 1
@@ -57,66 +56,116 @@ struct vertex
 };
 
 // Introduce constant buffers
-struct scene_constant_buffer
+struct c_buffer
 {
 	v4 offset;
 	float padding[60]; // Padding so the constant buffer is 256-byte aligned.
 };
-static_assert((sizeof(scene_constant_buffer) % 256) == 0, "Constant Buffer size must be 256-byte aligned");
+static_assert((sizeof(c_buffer) % 256) == 0, "Constant Buffer size must be 256-byte aligned");
+
+struct resource {
+	enum FORMAT {
+		c_buffer_256bytes = 0,
+		uav_buffer_r32u,
+		uav_buffer_r32i,
+		uav_buffer_r32f,
+		uav_buffer_r16u,
+		uav_buffer_r16i,
+		uav_buffer_r8u,
+		uav_buffer_r8i,
+		texture_f32,
+		texture_u32,
+		texture_i32,
+		texture_u32_norm,
+		texture_f32_rgba,
+		texture_u8rgba_norm,
+	};
+
+	enum TYPE {
+		constant_buffer = 0,
+		texture2d,
+		texture1d,
+		buffer2d,
+		buffer1d,
+		sampler,
+	};
+
+	FORMAT format;
+	TYPE type;
+
+	union {
+		struct { u32 res_and_view_idx; u32 width; 	u32 height; 		arena_ptr dsc_heap;}	texture2d;
+		struct { u32 res_and_view_idx; u32 count_x;	u32 count_y; 		arena_ptr dsc_heap;} 	buffer2d;
+		struct { u32 res_and_view_idx; u32 offset; 	u32 mapped_data_idx;arena_ptr dsc_heap;}	cbuffer;
+		struct { u32 res_and_view_idx; u32 width; 	arena_ptr dsc_heap;} 						texture1d;
+		struct { u32 res_and_view_idx; u32 count; 	arena_ptr dsc_heap;} 						buffer1d;
+		struct { u32 res_and_view_idx; arena_ptr dsc_heap;} 									sampler;
+	} info;
+};
+
+struct resource_and_view {
+	ID3D12Resource				*addr;
+	D3D12_CPU_DESCRIPTOR_HANDLE view;
+};
 
 struct descriptor_heap {
-	ComPtr<ID3D12DescriptorHeap>	addr;
-	u32 							descriptor_size;
+	ID3D12DescriptorHeap	*addr;
+	u32 					descriptor_size;
+	u32						next_resource_idx;
+	u32						max_resources_count;
 };
 
-struct compute_buffer
+struct uav_buffer
 {
-	ComPtr<ID3D12Resource>	addr;
-	D3D12_CPU_DESCRIPTOR_HANDLE 	view;
-	u32 					index;
-	u32 					width;
-	u32 					height;
-	DXGI_FORMAT 			format;
+	resource_and_view			res_n_view;
+	u32 						index;
+	u32 						width;
+	u32 						height;
+	DXGI_FORMAT 				format;
 };
 
-struct compute_constant_buffer 
+struct constant_buffer 
 {
-	ComPtr<ID3D12Resource>		addr;
+	ID3D12Resource				*addr;
 	D3D12_CPU_DESCRIPTOR_HANDLE view;
 	u32 						index;
 	u32 						size; // NOTE(DH): Size is always should be 256 bytes (CBV boundaries)
-	scene_constant_buffer		cb_scene_data;
+	c_buffer					cb_scene_data;
 	u8*							cb_data_begin;
 	DXGI_FORMAT 				format;
 };
 
-struct compute_c_buffer
-{
-	ComPtr<ID3D12Resource>	constant_buffer;
-};
-
-struct compute_pipeline {
+struct pipeline {
 	ID3D12RootSignature *root_signature;
-	ComPtr<ID3D12PipelineState> state;
-	ComPtr<ID3DBlob> shader_blob;
+	ID3D12PipelineState *state;
+	ID3DBlob 			*shader_blob;
+	u32					number_of_resources;
 };
 
-struct compute_rendering_stage {
-	descriptor_heap			dsc_heap;
-	compute_pipeline 		compute_pipeline;
-	compute_buffer 			back_buffer;
-	compute_constant_buffer c_buffer;
+struct render_pass {
+	pipeline curr_pipeline;
+	pipeline prev_pipeline;
+};
+
+struct rendering_stage {
+	descriptor_heap	dsc_heap;
+	render_pass		rndr_pass_01;
+	render_pass		rndr_pass_02;
+	arena_ptr		resources_ptr;
+	u32 			resource_count;
+	// uav_buffer 		back_buffer;
+	// uav_buffer 		atomic_buffer;
+	// constant_buffer c_buffer;
 };
 
 struct rendered_entity
 {
 	ComPtr<ID3D12GraphicsCommandList>	bundle;
-	ComPtr<ID3D12GraphicsCommandList> 	cmd_list; //Command list for entity
 
 	ComPtr<ID3D12Resource> 				vertex_buffer;
     D3D12_VERTEX_BUFFER_VIEW 			vertex_buffer_view;
 	ComPtr<ID3D12Resource>				constant_buffer;
-	scene_constant_buffer				cb_scene_data;
+	c_buffer							cb_scene_data;
 	u8*									cb_data_begin;
 
 	ComPtr<ID3DBlob> 					vertex_shader;
@@ -168,9 +217,17 @@ struct dx_context
 	memory_arena dx_memory_arena;
 
 	u32 entity_count;
-	rendered_entity *entities;
+	arena_ptr entities_array;
 
-	compute_rendering_stage compute_stage;
+	u32 descriptors_count;
+	u32 max_descriptor_heaps_count;
+	arena_ptr descriptor_heaps;
+
+	u32 resources_max_count;
+	u32 resources_used;
+	arena_ptr resources_and_views;
+
+	rendering_stage compute_stage;
 
 	//Window Handle
 	HWND g_hwnd;
@@ -187,6 +244,9 @@ struct dx_context
 
 	//IMGUI STUFF
 	bool g_is_menu_active = true;
+	
+	// Recompile shader
+	bool g_recompile_shader;
 
 	bool g_is_quitting = false;
 };
@@ -203,17 +263,19 @@ void 							flush					(dx_context &context);
 void 							present					(dx_context *context, ComPtr<IDXGISwapChain4> swap_chain);
 dx_context 						init_dx					(HWND hwnd);
 ComPtr<IDXGISwapChain4> 		get_current_swapchain	(dx_context *context);
-CD3DX12_GPU_DESCRIPTOR_HANDLE 	get_uav(u32 uav_idx, ComPtr<ID3D12Device2> device, ComPtr<ID3D12DescriptorHeap> desc_heap);
-CD3DX12_GPU_DESCRIPTOR_HANDLE 	get_cbv(u32 cbv_idx, ComPtr<ID3D12Device2> device, ComPtr<ID3D12DescriptorHeap> desc_heap);
+CD3DX12_GPU_DESCRIPTOR_HANDLE 	get_uav_cbv_srv(u32 uav_idx, u32 uav_count, ID3D12Device2* device, ID3D12DescriptorHeap* desc_heap);
 
-compute_pipeline 				create_compute_pipeline	(ComPtr<ID3D12Device2> device, memory_arena *arena, ID3D12RootSignature *root_sig);
-compute_buffer 					create_compute_buffer	(ComPtr<ID3D12Device2> device, descriptor_heap dsc_heap, u32 width, u32 height, DXGI_FORMAT format);
-CD3DX12_CPU_DESCRIPTOR_HANDLE 	create_compute_descriptor_view	(u32 idx, ComPtr<ID3D12Device2> device, ID3D12DescriptorHeap *desc_heap, u32 desc_size, DXGI_FORMAT format, ID3D12Resource *p_resource);
+pipeline 						create_compute_pipeline	(ComPtr<ID3D12Device2> device, const char* entry_point_name, memory_arena *arena, ID3D12RootSignature *root_sig);
+uav_buffer 						create_uav_texture_buffer(ComPtr<ID3D12Device2> device, u32 index, descriptor_heap dsc_heap, D3D12_HEAP_FLAGS heap_flags, u32 width, u32 height, DXGI_FORMAT format, D3D12_UAV_DIMENSION dim, D3D12_RESOURCE_DIMENSION res_dim);
+CD3DX12_CPU_DESCRIPTOR_HANDLE 	create_uav_descriptor_view(ComPtr<ID3D12Device2> device, u32 index, ID3D12DescriptorHeap *desc_heap, u32 desc_size, DXGI_FORMAT format, D3D12_UAV_DIMENSION dim, ID3D12Resource *p_resource);
+uav_buffer 						create_uav_u32_buffer(ComPtr<ID3D12Device2> device, u32 index, descriptor_heap dsc_heap, D3D12_HEAP_FLAGS heap_flags, u32 width, u32 height, DXGI_FORMAT format, D3D12_UAV_DIMENSION dim, D3D12_RESOURCE_DIMENSION res_dim);
+CD3DX12_CPU_DESCRIPTOR_HANDLE 	create_uav_u32_buffer_descriptor_view(ComPtr<ID3D12Device2> device, u32 index, ID3D12DescriptorHeap *desc_heap, u32 desc_size, u32 num_of_elements, DXGI_FORMAT format, D3D12_UAV_DIMENSION dim, ID3D12Resource *p_resource);
 
-ComPtr<ID3D12Resource> 			allocate_data_on_gpu
+ID3D12Resource*					allocate_data_on_gpu
 (
 	ComPtr<ID3D12Device2> 		device, 
-	D3D12_HEAP_TYPE 			heap_type, 
+	D3D12_HEAP_TYPE 			heap_type,
+	D3D12_HEAP_FLAGS			heap_flags, 
 	D3D12_TEXTURE_LAYOUT 		layout, 
 	D3D12_RESOURCE_FLAGS 		flags, 
 	D3D12_RESOURCE_STATES 		states, 
@@ -223,11 +285,15 @@ ComPtr<ID3D12Resource> 			allocate_data_on_gpu
 	DXGI_FORMAT 				format
 );
 
-descriptor_heap 				allocate_descriptor_heap(ComPtr<ID3D12Device2> device, D3D12_DESCRIPTOR_HEAP_TYPE heap_type, D3D12_DESCRIPTOR_HEAP_FLAGS flags, u32 count);
-CD3DX12_GPU_DESCRIPTOR_HANDLE 	get_gpu_handle_at(u32 index, ComPtr<ID3D12DescriptorHeap> desc_heap, u32 desc_size);
-CD3DX12_CPU_DESCRIPTOR_HANDLE 	get_cpu_handle_at(u32 index, ComPtr<ID3D12DescriptorHeap> desc_heap, u32 desc_size);
+CD3DX12_GPU_DESCRIPTOR_HANDLE 	get_gpu_handle_at(u32 index, ID3D12DescriptorHeap* desc_heap, u32 desc_size);
+CD3DX12_CPU_DESCRIPTOR_HANDLE 	get_cpu_handle_at(u32 index, ID3D12DescriptorHeap* desc_heap, u32 desc_size);
 
-compute_rendering_stage create_compute_rendering_stage(ComPtr<ID3D12Device2> device, D3D12_VIEWPORT viewport, memory_arena *arena);
-compute_buffer initialize_compute_resources(ComPtr<ID3D12Device2> device, u32 width, u32 height);
-compute_pipeline initialize_compute_pipeline(ComPtr<ID3D12Device2> device, memory_arena *arena);
-void record_compute_stage(ComPtr<ID3D12Device2> device, compute_rendering_stage stage, ComPtr<ID3D12GraphicsCommandList> command_list);
+void 	record_compute_stage(ComPtr<ID3D12Device2> device, rendering_stage stage, ComPtr<ID3D12GraphicsCommandList> command_list);
+void 	recompile_shader(dx_context *ctx, rendering_stage rndr_stage);
+void 	clear_render_target(dx_context ctx, ID3D12GraphicsCommandList *command_list, float clear_color[4]);
+func 	initialize_compute_pipeline(ComPtr<ID3D12Device2> device, const char* entry_point_name, memory_arena *arena) -> pipeline;
+func 	initialize_compute_resources(ComPtr<ID3D12Device2> device, u32 width, u32 height) -> uav_buffer;
+func 	allocate_resources_and_views(memory_arena *arena, u32 max_resources_count) -> arena_ptr;
+func 	allocate_descriptor_heaps(memory_arena *arena, u32 count) -> arena_ptr;
+func 	allocate_descriptor_heap(dx_context *ctx, D3D12_DESCRIPTOR_HEAP_TYPE heap_type, D3D12_DESCRIPTOR_HEAP_FLAGS flags, u32 count) -> descriptor_heap;
+func 	create_compute_rendering_stage(dx_context *ctx, ID3D12Device2* device, D3D12_VIEWPORT viewport, memory_arena *arena) -> rendering_stage;

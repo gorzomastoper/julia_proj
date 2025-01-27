@@ -38,6 +38,12 @@
 #define USE_DX12
 #endif
 
+#ifdef VIRT_ALLOCATION
+void* allocate_memory(void* base, size_t size) { return VirtualAlloc(base, size, MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);}
+#else
+void* allocate_memory(void* base, size_t size) { return malloc(size);}
+#endif
+
 //TODO(DH): This is temporary stuff, vaporize immidietly when normal memory arena will be created
 // Simple free list based allocator
 struct ExampleDescriptorHeapAllocator
@@ -179,20 +185,30 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 					last_time = current_time;
 
 					directx_context.dt_for_frame = delta_time * 0.001;
-					update(&directx_context);
+					//update(&directx_context);
 
-					auto triangle_cmd_list = generate_command_buffer(&directx_context);
+					//auto triangle_cmd_list = generate_command_buffer(&directx_context);
 					auto imgui_cmd_list = generate_imgui_command_buffer(&directx_context);
 					auto compute_cmd_list = generate_compute_command_buffer(&directx_context);
 
-					//render(&directx_context, triangle_cmd_list);
+					float clear_color[] = { 0.0f, 0.2f, 0.4f, 1.0f };
+					//clear_render_target(directx_context, compute_cmd_list.Get(), clear_color);
 					render(&directx_context, compute_cmd_list);
+					//render(&directx_context, triangle_cmd_list);
 					render(&directx_context, imgui_cmd_list);
 
 					// Do not wait for frame, just move to the next one
 					auto render_target = get_current_swapchain(&directx_context);
 					present(&directx_context, render_target);
     				move_to_next_frame(&directx_context);
+
+					// Recompile shaders if needed
+					if(directx_context.g_recompile_shader)
+					{
+						recompile_shader(&directx_context, directx_context.compute_stage);
+						directx_context.g_recompile_shader = false;
+					}
+
 					quiting = directx_context.g_is_quitting;
 				} return 0;
 #endif

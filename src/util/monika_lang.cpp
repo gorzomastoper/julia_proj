@@ -50,13 +50,13 @@ struct term {
 
 	union {
 		struct {term* e_pos; term* e_uv;} 	vert_shader;
-		struct {term* e_color;} 				frag_shader;
+		struct {term* e_color;} 			frag_shader;
 		
 		struct {int idx;}			var;
 		
-		struct {float i;} 			f32_val;
+		struct {float i;} 			 f32_val;
 		
-		struct {int i;} 			i32_val;
+		struct {int i;} 			 i32_val;
 		struct {term* e1; term *e2;} i32_add;
 		struct {term* e1; term *e2;} i32_sub;
 		struct {term* e1; term *e2;} i32_mul;
