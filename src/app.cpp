@@ -3,6 +3,7 @@
 #include <combaseapi.h>
 #include <memoryapi.h>
 #include <propsys.h>
+#include <synchapi.h>
 #include <vcruntime_string.h>
 #include <winbase.h>
 #include <windef.h>
@@ -138,6 +139,7 @@ func toggle_fullscreen(HWND Window)
 }
 
 bool quiting = false;
+global_variable bool global_pause = false;
 global_variable f64 GlobalPerfCountFrequency;
 global_variable f32 last_time;
 
@@ -180,36 +182,38 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 
 #ifdef USE_DX12
 			case WM_PAINT: {
-					f32 current_time = GetCurrentTime();
-					f32 delta_time = current_time - last_time;
-					last_time = current_time;
-
-					directx_context.dt_for_frame = delta_time * 0.001;
-					update(&directx_context);
-
-					//auto triangle_cmd_list = generate_command_buffer(&directx_context);
-					auto imgui_cmd_list = generate_imgui_command_buffer(&directx_context);
-					auto compute_cmd_list = generate_compute_command_buffer(&directx_context);
-
-					float clear_color[] = { 0.0f, 0.2f, 0.4f, 1.0f };
-					//clear_render_target(directx_context, compute_cmd_list.Get(), clear_color);
-					render(&directx_context, compute_cmd_list);
-					//render(&directx_context, triangle_cmd_list);
-					render(&directx_context, imgui_cmd_list);
-
-					// Do not wait for frame, just move to the next one
-					auto render_target = get_current_swapchain(&directx_context);
-					present(&directx_context, render_target);
-    				move_to_next_frame(&directx_context);
-
-					// Recompile shaders if needed
-					if(directx_context.g_recompile_shader)
+					// if(!global_pause) 
 					{
-						rendering_stage compute_stage = directx_context.dx_memory_arena.load_by_idx<rendering_stage>(directx_context.rendering_stages.ptr, 0);
-						recompile_shader(&directx_context, compute_stage);
-						directx_context.g_recompile_shader = false;
-					}
+						f32 current_time = GetCurrentTime();
+						f32 delta_time = current_time - last_time;
+						last_time = current_time;
 
+						directx_context.dt_for_frame = delta_time * 0.001;
+						update(&directx_context);
+
+						// auto triangle_cmd_list = generate_command_buffer(&directx_context);
+						auto compute_cmd_list = generate_compute_command_buffer(&directx_context);
+						auto imgui_cmd_list = generate_imgui_command_buffer(&directx_context);
+
+						float clear_color[] = { 0.0f, 0.2f, 0.4f, 1.0f };
+						// clear_render_target(directx_context, compute_cmd_list, clear_color);
+						render(&directx_context, compute_cmd_list);
+						// render(&directx_context, triangle_cmd_list);
+						render(&directx_context, imgui_cmd_list);
+
+						// Do not wait for frame, just move to the next one
+						auto render_target = get_current_swapchain(&directx_context);
+						present(&directx_context, render_target);
+						move_to_next_frame(&directx_context);
+
+						// Recompile shaders if needed
+						if(directx_context.g_recompile_shader)
+						{
+							rendering_stage compute_stage = directx_context.dx_memory_arena.load_by_idx<rendering_stage>(directx_context.rendering_stages.ptr, 0);
+							recompile_shader(&directx_context, compute_stage);
+							directx_context.g_recompile_shader = false;
+						}
+					}
 					quiting = directx_context.g_is_quitting;
 				} return 0;
 #endif
@@ -221,7 +225,12 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 				main_window_info.width = (uint16_t)(ClientRect.right - ClientRect.left);
 				main_window_info.mouse_wheel_delta = 0;
 #ifdef USE_DX12
-				resize(&directx_context, main_window_info.width, main_window_info.height);
+				if(wParam == SIZE_MINIMIZED) {
+					global_pause = true;
+				} else if (wParam == SIZE_RESTORED){
+					global_pause = false;
+					resize(&directx_context, main_window_info.width, main_window_info.height);
+				}
 #else
 				do_redraw(hwnd);
 #endif
@@ -381,14 +390,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	ImGui_ImplWin32_Init(hwnd);
 
 	ImGui_ImplDX12_InitInfo init_info = {};
-	init_info.Device = directx_context.g_device.Get();
-	init_info.CommandQueue = directx_context.g_command_queue.Get();
+	init_info.Device = directx_context.g_device;
+	init_info.CommandQueue = directx_context.g_command_queue;
 	init_info.NumFramesInFlight = g_NumFrames;
 	init_info.RTVFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
     init_info.DSVFormat = DXGI_FORMAT_UNKNOWN;
-	init_info.SrvDescriptorHeap = directx_context.g_imgui_descriptor_heap.Get();
+	init_info.SrvDescriptorHeap = directx_context.g_imgui_descriptor_heap;
 
-	//TODO(DH): Replace this shit immidietly after memory arena creation!
 	g_pd3dSrvDescHeapAlloc.Create(init_info.Device, init_info.SrvDescriptorHeap);
 
 	init_info.SrvDescriptorAllocFn = 
@@ -428,7 +436,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	f32 target_seconds_per_frame = 1.0f / (f32)game_update_hz;
 	last_time = GetCurrentTime(); // TODO(DH): Implement it like in DENGINE!!!
 
-    while (quiting == false) {
+   // while (quiting == false) {
         // POINT mpos = {};
         // GetCursorPos(&mpos);
         // ScreenToClient(hwnd,&mpos);
@@ -466,7 +474,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         do_redraw(hwnd);
 #endif
 
-    }
+    //}
 
 	//Make sure command queue has finished all in-flight commands before closing
 	flush(directx_context);
