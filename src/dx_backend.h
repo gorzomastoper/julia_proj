@@ -94,12 +94,12 @@ struct resource {
 	TYPE type;
 
 	union {
-		struct { u32 res_and_view_idx; u32 width; 	u32 height; 		arena_ptr dsc_heap;}	texture2d;
-		struct { u32 res_and_view_idx; u32 count_x;	u32 count_y; 		arena_ptr dsc_heap;} 	buffer2d;
-		struct { u32 res_and_view_idx; u32 offset; 	u32 mapped_data_idx;arena_ptr dsc_heap;}	cbuffer;
-		struct { u32 res_and_view_idx; u32 width; 	arena_ptr dsc_heap;} 						texture1d;
-		struct { u32 res_and_view_idx; u32 count; 	arena_ptr dsc_heap;} 						buffer1d;
-		struct { u32 res_and_view_idx; arena_ptr dsc_heap;} 									sampler;
+		struct { u32 res_and_view_idx; u32 width; 		u32 height; 		u32 register_idx;}	texture2d;
+		struct { u32 res_and_view_idx; u32 count_x;		u32 count_y; 		u32 register_idx;} 	buffer2d;
+		struct { u32 res_and_view_idx; u32 data_idx;	u8* mapped_view;	u32 register_idx;}	cbuffer;
+		struct { u32 res_and_view_idx; u32 width; 							u32 register_idx;} 	texture1d;
+		struct { u32 res_and_view_idx; u32 count; 							u32 register_idx;} 	buffer1d;
+		struct { u32 res_and_view_idx; 										u32 register_idx;} 	sampler;
 	} info;
 };
 
@@ -143,16 +143,17 @@ struct pipeline {
 };
 
 struct render_pass {
+	char name[32];
 	pipeline curr_pipeline;
 	pipeline prev_pipeline;
 };
 
 struct rendering_stage {
+	char name[32];
 	descriptor_heap	dsc_heap;
 	render_pass		rndr_pass_01;
 	render_pass		rndr_pass_02;
-	arena_ptr		resources_ptr;
-	u32 			resource_count;
+	arena_array		resources_array;
 	// uav_buffer 		back_buffer;
 	// uav_buffer 		atomic_buffer;
 	// constant_buffer c_buffer;
@@ -216,18 +217,12 @@ struct dx_context
 
 	memory_arena dx_memory_arena;
 
-	u32 entity_count;
-	arena_ptr entities_array;
+	arena_array entities_array;
+	arena_array resources_and_views;
+	arena_array rendering_stages;
 
-	u32 descriptors_count;
-	u32 max_descriptor_heaps_count;
-	arena_ptr descriptor_heaps;
-
-	u32 resources_max_count;
-	u32 resources_used;
-	arena_ptr resources_and_views;
-
-	rendering_stage compute_stage;
+	// NOTE(DH): Common constant buffer data
+	c_buffer common_cbuff_data;
 
 	//Window Handle
 	HWND g_hwnd;
@@ -288,12 +283,26 @@ ID3D12Resource*					allocate_data_on_gpu
 CD3DX12_GPU_DESCRIPTOR_HANDLE 	get_gpu_handle_at(u32 index, ID3D12DescriptorHeap* desc_heap, u32 desc_size);
 CD3DX12_CPU_DESCRIPTOR_HANDLE 	get_cpu_handle_at(u32 index, ID3D12DescriptorHeap* desc_heap, u32 desc_size);
 
-void 	record_compute_stage(ComPtr<ID3D12Device2> device, rendering_stage stage, ComPtr<ID3D12GraphicsCommandList> command_list);
-void 	recompile_shader(dx_context *ctx, rendering_stage rndr_stage);
-void 	clear_render_target(dx_context ctx, ID3D12GraphicsCommandList *command_list, float clear_color[4]);
-func 	initialize_compute_pipeline(ComPtr<ID3D12Device2> device, const char* entry_point_name, memory_arena *arena) -> pipeline;
-func 	initialize_compute_resources(ComPtr<ID3D12Device2> device, u32 width, u32 height) -> uav_buffer;
-func 	allocate_resources_and_views(memory_arena *arena, u32 max_resources_count) -> arena_ptr;
-func 	allocate_descriptor_heaps(memory_arena *arena, u32 count) -> arena_ptr;
-func 	allocate_descriptor_heap(dx_context *ctx, D3D12_DESCRIPTOR_HEAP_TYPE heap_type, D3D12_DESCRIPTOR_HEAP_FLAGS flags, u32 count) -> descriptor_heap;
-func 	create_compute_rendering_stage(dx_context *ctx, ID3D12Device2* device, D3D12_VIEWPORT viewport, memory_arena *arena) -> rendering_stage;
+func 	create_resource					(dx_context *ctx, resource tmplate, arena_array res_and_views_array, descriptor_heap desc_heap, u32 register_idx) -> resource;
+
+func 	recreate_resource				(dx_context *ctx, resource tmplate, arena_array res_and_views_array, descriptor_heap desc_heap, u32 register_idx, u32 resource_idx) -> resource;
+
+func 	record_compute_stage			(ComPtr<ID3D12Device2> device, rendering_stage stage, ComPtr<ID3D12GraphicsCommandList> command_list) -> void;
+
+func 	recompile_shader				(dx_context *ctx, rendering_stage rndr_stage) -> void;
+
+func 	clear_render_target				(dx_context ctx, ID3D12GraphicsCommandList *command_list, float clear_color[4]) -> void;
+
+func	initialize_compute_pipeline		(ComPtr<ID3D12Device2> device, const char* entry_point_name, memory_arena *arena, arena_array resources) -> pipeline;
+
+func 	initialize_compute_resources	(ComPtr<ID3D12Device2> device, u32 width, u32 height) -> uav_buffer;
+
+func 	allocate_resources_and_views	(memory_arena *arena, u32 max_resources_count) -> arena_array;
+
+func 	allocate_descriptor_heaps		(memory_arena *arena, u32 count) -> arena_array;
+
+func 	allocate_rendering_stages		(memory_arena *arena, u32 max_count) -> arena_array;
+
+func 	allocate_descriptor_heap		(dx_context *ctx, D3D12_DESCRIPTOR_HEAP_TYPE heap_type, D3D12_DESCRIPTOR_HEAP_FLAGS flags, u32 count) -> descriptor_heap;
+
+func 	create_compute_rendering_stage	(dx_context *ctx, ID3D12Device2* device, D3D12_VIEWPORT viewport, memory_arena *arena) -> rendering_stage;

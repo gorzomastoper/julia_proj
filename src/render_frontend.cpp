@@ -1,5 +1,3 @@
-#include "dx_backend.h"
-
 // TODO(DH):
 // For render something we need to create:
 // 1. Alocate descriptor heaps (for all resources)

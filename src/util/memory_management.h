@@ -17,6 +17,12 @@ struct arena_ptr {
 	u32 offset; // TODO(DH): Make this offset 8 bytes, because we (want?) to use more than 4 gb memory :)
 };
 
+struct arena_array {
+	u32 capacity;
+	u32 count;
+	arena_ptr ptr;
+};
+
 template<typename T>
 struct stored_elem {
 	u32 reserved;
@@ -50,7 +56,7 @@ private:
 	template<typename T>
 	inline func mem_alloc_aligned(memory_arena *arena, usize count) -> arena_ptr
 	{ 
-		usize memory_size = (sizeof(stored_elem<T>) * count);
+		usize memory_size = (sizeof(T) * count) + sizeof(stored_elem<T>::reserved);
 		usize size = get_effective_size_for(arena, memory_size, default_arena_alignment());
 		
 		assert((arena->used + size) <= arena->size);
@@ -77,16 +83,22 @@ public:
 	}
 
 	template<typename T>
-	inline func push_array(usize count) -> arena_ptr {
-		arena_ptr ptr = mem_alloc_aligned<T>(this, count);
-		return ptr;
+	inline func push_array(usize count) -> arena_array {
+		return {.capacity = (u32)count, .count = 0, .ptr = mem_alloc_aligned<T>(this, count)};
 	}
 
 	template<typename T>
 	inline func load_by_idx(arena_ptr ptr, u32 idx) -> T {
 		stored_elem<T> *elem = (stored_elem<T>*)(this->base + ptr.offset);
-		assert(elem->reserved >= idx);
-		return elem->data[idx];
+		//assert(elem->reserved >= idx);
+		return ((T*)&elem->data)[idx];
+	}
+
+	template<typename T>
+	inline func load_ptr_by_idx(arena_ptr ptr, u32 idx) -> T* {
+		stored_elem<T> *elem = (stored_elem<T>*)(this->base + ptr.offset);
+		//assert(elem->reserved >= idx);
+		return &((T*)&elem->data)[idx];
 	}
 
 	template<typename T>
@@ -94,6 +106,11 @@ public:
 		stored_elem<T> *elem = (stored_elem<T>*)(this->base + ptr.offset);
 		return &elem->data;
 	}
+
+	// inline func free_temp(arena_ptr ptr) {
+	// 	stored_elem<u8>* elem = (stored_elem<u8>*)(this->base + ptr.offset);
+	// 	u32 free_offset = elem->reserved;
+	// }
 };
 
 struct temporary_memory

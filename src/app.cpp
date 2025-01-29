@@ -185,7 +185,7 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 					last_time = current_time;
 
 					directx_context.dt_for_frame = delta_time * 0.001;
-					//update(&directx_context);
+					update(&directx_context);
 
 					//auto triangle_cmd_list = generate_command_buffer(&directx_context);
 					auto imgui_cmd_list = generate_imgui_command_buffer(&directx_context);
@@ -205,7 +205,8 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 					// Recompile shaders if needed
 					if(directx_context.g_recompile_shader)
 					{
-						recompile_shader(&directx_context, directx_context.compute_stage);
+						rendering_stage compute_stage = directx_context.dx_memory_arena.load_by_idx<rendering_stage>(directx_context.rendering_stages.ptr, 0);
+						recompile_shader(&directx_context, compute_stage);
 						directx_context.g_recompile_shader = false;
 					}
 
