@@ -67,7 +67,6 @@ static_assert((sizeof(c_buffer) % 256) == 0, "Constant Buffer size must be 256-b
 #define GET_HEIGHT(value) (value & 0xFFFF)
 #define SET_WIDTH_HEIGHT(width, height)	((width << 16) + height)
 
-
 struct resource {
 	enum FORMAT {
 		c_buffer_256bytes = 0,
@@ -113,48 +112,37 @@ struct resource {
 };
 
 struct resource_and_view {
-	ID3D12Resource				*addr;
+	ID3D12Resource*				addr;
 	D3D12_CPU_DESCRIPTOR_HANDLE view;
 };
 
 struct descriptor_heap {
-	ID3D12DescriptorHeap	*addr;
+	ID3D12DescriptorHeap*	addr;
 	u32 					descriptor_size;
 	u32						next_resource_idx;
 	u32						max_resources_count;
 };
 
-struct uav_buffer
-{
-	resource_and_view			res_n_view;
-	u32 						index;
-	u32 						width;
-	u32 						height;
-	DXGI_FORMAT 				format;
-};
-
-struct constant_buffer 
-{
-	ID3D12Resource				*addr;
-	D3D12_CPU_DESCRIPTOR_HANDLE view;
-	u32 						index;
-	u32 						size; // NOTE(DH): Size is always should be 256 bytes (CBV boundaries)
-	c_buffer					cb_scene_data;
-	u8*							cb_data_begin;
-	DXGI_FORMAT 				format;
-};
-
 struct pipeline {
-	ID3D12RootSignature *root_signature;
-	ID3D12PipelineState *state;
-	ID3DBlob 			*shader_blob;
-	u32					number_of_resources;
+	enum type {
+		compute = 0,
+		graphics
+	};
+
+	arena_ptr				shader_entry_point_name;
+	arena_ptr				shader_version_name;
+	arena_ptr				shader_path;
+	ID3D12RootSignature*	root_signature;
+	ID3D12PipelineState*	state;
+	ID3DBlob*				shader_blob;
+	u32						number_of_resources;
+	type					ty;
 };
 
 struct render_pass {
 	char name[32];
 	pipeline curr_pipeline;
-	pipeline prev_pipeline;
+	pipeline prev_pipeline; // NOTE(DH): We need this for runtime shader compilation!
 };
 
 struct rendering_stage {
@@ -163,9 +151,6 @@ struct rendering_stage {
 	render_pass		rndr_pass_01;
 	render_pass		rndr_pass_02;
 	arena_array		resources_array;
-	// uav_buffer 		back_buffer;
-	// uav_buffer 		atomic_buffer;
-	// constant_buffer c_buffer;
 };
 
 struct rendered_entity
@@ -235,6 +220,8 @@ struct dx_context
 	// NOTE(DH): Common constant buffer data
 	c_buffer common_cbuff_data;
 
+	f32 speed_multiplier = 1.0f;
+
 	//Window Handle
 	HWND g_hwnd;
 	//Window rectangle used to store window dimensions when in window mode
@@ -281,11 +268,7 @@ func get_current_swapchain			(dx_context *context) -> IDXGISwapChain4*;
 
 func get_uav_cbv_srv				(u32 uav_idx, u32 uav_count, ID3D12Device2* device, ID3D12DescriptorHeap* desc_heap) -> CD3DX12_GPU_DESCRIPTOR_HANDLE;
 
-func create_compute_pipeline		(ID3D12Device2* device, const char* entry_point_name, memory_arena *arena, ID3D12RootSignature *root_sig) -> pipeline;
-
-func create_uav_texture_buffer		(ID3D12Device2* device, u32 index, descriptor_heap dsc_heap, D3D12_HEAP_FLAGS heap_flags, u32 width, u32 height, DXGI_FORMAT format, D3D12_UAV_DIMENSION dim, D3D12_RESOURCE_DIMENSION res_dim) -> uav_buffer;
-
-func create_uav_u32_buffer			(ID3D12Device2* device, u32 index, descriptor_heap dsc_heap, D3D12_HEAP_FLAGS heap_flags, u32 width, u32 height, DXGI_FORMAT format, D3D12_UAV_DIMENSION dim, D3D12_RESOURCE_DIMENSION res_dim) -> uav_buffer;
+func create_pipeline				(ID3D12Device2* device, pipeline::type type, WCHAR* shader_path, char* entry_point_name, char* target_name, memory_arena *arena, ID3D12RootSignature *root_sig) -> pipeline;
 
 func create_uav_descriptor_view		(ID3D12Device2* device, u32 index, ID3D12DescriptorHeap *desc_heap, u32 desc_size, DXGI_FORMAT format, D3D12_UAV_DIMENSION dim, ID3D12Resource *p_resource) -> CD3DX12_CPU_DESCRIPTOR_HANDLE;
 
@@ -306,8 +289,6 @@ func recompile_shader				(dx_context *ctx, rendering_stage rndr_stage) -> void;
 func clear_render_target			(dx_context ctx, ID3D12GraphicsCommandList *command_list, float clear_color[4]) -> void;
 
 func initialize_compute_pipeline	(ID3D12Device2* device, const char* entry_point_name, memory_arena *arena, arena_array resources) -> pipeline;
-
-func initialize_compute_resources	(ID3D12Device2* device, u32 width, u32 height) -> uav_buffer;
 
 func allocate_resources_and_views	(memory_arena *arena, u32 max_resources_count) -> arena_array;
 

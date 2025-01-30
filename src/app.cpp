@@ -3,6 +3,7 @@
 #include <combaseapi.h>
 #include <memoryapi.h>
 #include <propsys.h>
+#include <stdlib.h>
 #include <synchapi.h>
 #include <vcruntime_string.h>
 #include <winbase.h>
@@ -196,7 +197,7 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 						auto imgui_cmd_list = generate_imgui_command_buffer(&directx_context);
 
 						float clear_color[] = { 0.0f, 0.2f, 0.4f, 1.0f };
-						// clear_render_target(directx_context, compute_cmd_list, clear_color);
+						// clear_render_target(directx_context, triangle_cmd_list, clear_color);
 						render(&directx_context, compute_cmd_list);
 						// render(&directx_context, triangle_cmd_list);
 						render(&directx_context, imgui_cmd_list);

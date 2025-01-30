@@ -77,7 +77,23 @@ public:
 	}
 
 	template<typename T>
-	inline func push_data() -> arena_ptr {
+	inline func write_array(T* data_to_copy, usize count) -> arena_array {
+		arena_array array = {.capacity = (u32)count, .count = count, .ptr = mem_alloc_aligned<T>(this, count)};
+		stored_elem<T> *elem = (stored_elem<T>*)(this->base + array.ptr.offset);
+		memcpy((T*)&elem->data, data_to_copy, sizeof(T) * count);
+		return array;
+	}
+
+	template<typename T>
+	inline func write(T data_to_copy) -> arena_ptr {
+		arena_ptr ptr = mem_alloc_aligned<T>(this);
+		stored_elem<T> *elem = (stored_elem<T>*)(this->base + ptr.offset);
+		elem->data = data_to_copy;
+		return ptr;
+	}
+
+	template<typename T>
+	inline func push_data(T data) -> arena_ptr {
 		arena_ptr ptr = mem_alloc_aligned<T>(this);
 		return ptr;
 	}
@@ -105,6 +121,21 @@ public:
 	inline func get_ptr(arena_ptr ptr) -> T* {
 		stored_elem<T> *elem = (stored_elem<T>*)(this->base + ptr.offset);
 		return &elem->data;
+	}
+
+	template<typename T>
+	inline func get_array(arena_array array) -> T* {
+		stored_elem<T> *elem = (stored_elem<T>*)(this->base + array.ptr.offset);
+		return &elem->data;
+	}
+
+		template<typename T>
+	inline func push_string(T* string) -> arena_ptr {
+		// NOTE(DH): Find out letter count in string
+		u32 count = 0; while(true) { if(string[count] == 0) { break; } ++count;}
+		arena_array array = push_array<T>(count);
+		memcpy(get_array<T>(array), string, sizeof(T) * count);
+		return array.ptr;
 	}
 
 	// inline func free_temp(arena_ptr ptr) {
