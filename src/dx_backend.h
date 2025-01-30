@@ -59,7 +59,8 @@ struct vertex
 struct c_buffer
 {
 	v4 offset;
-	float padding[60]; // Padding so the constant buffer is 256-byte aligned.
+	v4 mouse_pos;
+	v4 padding[14]; // Padding so the constant buffer is 256-byte aligned.
 };
 static_assert((sizeof(c_buffer) % 256) == 0, "Constant Buffer size must be 256-byte aligned");
 
@@ -129,14 +130,22 @@ struct pipeline {
 		graphics
 	};
 
-	arena_ptr				shader_entry_point_name;
-	arena_ptr				shader_version_name;
+	type ty;
+
+	union {
+		struct {
+			arena_ptr entry_name; arena_ptr version_name; ID3DBlob* shader_blob;
+		} compute_part;
+		struct {
+			arena_ptr entry_name_p; arena_ptr entry_name_v; arena_ptr version_name_p; arena_ptr version_name_v; arena_array in_elem_desc;
+			ID3DBlob* pixel_shader_blob; ID3DBlob* vertex_shader_blob;
+		} graphics_part;
+	};
+
 	arena_ptr				shader_path;
 	ID3D12RootSignature*	root_signature;
 	ID3D12PipelineState*	state;
-	ID3DBlob*				shader_blob;
 	u32						number_of_resources;
-	type					ty;
 };
 
 struct render_pass {
@@ -268,7 +277,7 @@ func get_current_swapchain			(dx_context *context) -> IDXGISwapChain4*;
 
 func get_uav_cbv_srv				(u32 uav_idx, u32 uav_count, ID3D12Device2* device, ID3D12DescriptorHeap* desc_heap) -> CD3DX12_GPU_DESCRIPTOR_HANDLE;
 
-func create_pipeline				(ID3D12Device2* device, pipeline::type type, WCHAR* shader_path, char* entry_point_name, char* target_name, memory_arena *arena, ID3D12RootSignature *root_sig) -> pipeline;
+func create_pipeline				(ID3D12Device2* device, pipeline tmplate, memory_arena *arena, ID3D12RootSignature *root_sig) -> pipeline;
 
 func create_uav_descriptor_view		(ID3D12Device2* device, u32 index, ID3D12DescriptorHeap *desc_heap, u32 desc_size, DXGI_FORMAT format, D3D12_UAV_DIMENSION dim, ID3D12Resource *p_resource) -> CD3DX12_CPU_DESCRIPTOR_HANDLE;
 
@@ -288,7 +297,7 @@ func recompile_shader				(dx_context *ctx, rendering_stage rndr_stage) -> void;
 
 func clear_render_target			(dx_context ctx, ID3D12GraphicsCommandList *command_list, float clear_color[4]) -> void;
 
-func initialize_compute_pipeline	(ID3D12Device2* device, const char* entry_point_name, memory_arena *arena, arena_array resources) -> pipeline;
+func initialize_compute_pipeline	(ID3D12Device2* device, char* entry_point_name, memory_arena *arena, arena_array resources) -> pipeline;
 
 func allocate_resources_and_views	(memory_arena *arena, u32 max_resources_count) -> arena_array;
 

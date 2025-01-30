@@ -133,8 +133,9 @@ public:
 	inline func push_string(T* string) -> arena_ptr {
 		// NOTE(DH): Find out letter count in string
 		u32 count = 0; while(true) { if(string[count] == 0) { break; } ++count;}
+		count += 1; // NOTE(DH): This is for null terminated symbol!
 		arena_array array = push_array<T>(count);
-		memcpy(get_array<T>(array), string, sizeof(T) * count);
+		memcpy((u8*)get_array<T>(array), string, sizeof(T) * count);
 		return array.ptr;
 	}
 

@@ -626,7 +626,7 @@ rendered_entity create_entity(dx_context &context)
 		
 		CD3DX12_ROOT_PARAMETER1 root_parameters[2];
 		root_parameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_PIXEL);
-		root_parameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_VERTEX);
+		root_parameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_ALL);
 
 		CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC root_signature_desc = 
 			create_root_signature_desc(root_parameters, _countof(root_parameters), pixel_default_sampler_desc(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
@@ -683,9 +683,9 @@ rendered_entity create_entity(dx_context &context)
         // Define the geometry for a triangle.
         vertex triangleVertices[] =
         {
-            { { 0.0f, 0.25f * context.aspect_ratio, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
-            { { 0.25f, -0.25f * context.aspect_ratio, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
-            { { -0.25f, -0.25f * context.aspect_ratio, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } }
+            { { -1.0f, 1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+            { { 3.0f, 1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+            { { -1.0, -3.0f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } }
         };
 
         const UINT vertexBufferSize = sizeof(triangleVertices);
@@ -819,7 +819,7 @@ rendered_entity create_entity(dx_context &context)
 			result.bundle->SetGraphicsRootSignature(context.g_root_signature);
 			result.bundle->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 			result.bundle->IASetVertexBuffers(0, 1, &result.vertex_buffer_view);
-			result.bundle->DrawInstanced(3, 1, 0, 0);
+			result.bundle->DrawInstanced(3, 1024, 0, 0);
 			ThrowIfFailed(result.bundle->Close());
 		}
 	}
@@ -938,15 +938,19 @@ void update(dx_context *context)
 	context->time_elapsed += context->dt_for_frame * context->speed_multiplier;
 	context->time_elapsed = fmod(context->time_elapsed, TIME_MAX);
 
-	rendered_entity *entity = context->dx_memory_arena.load_by_idx<rendered_entity*>(context->entities_array.ptr, 0);
+	context->common_cbuff_data.offset.z = context->viewport.Width;
+	context->common_cbuff_data.offset.w = context->viewport.Height;
+
+	rendered_entity *entity = context->dx_memory_arena.get_array<rendered_entity>(context->entities_array);
 	float speed = 0.005f;
 	float offset_bounds = 1.25f;
 
-	entity->cb_scene_data.offset.x += speed;
-	if(entity->cb_scene_data.offset.x > offset_bounds)
-		entity->cb_scene_data.offset.x = -offset_bounds;
+	context->common_cbuff_data.offset.y += speed;
+	if(context->common_cbuff_data.offset.y > offset_bounds)
+		context->common_cbuff_data.offset.y = -offset_bounds;
 
 	context->common_cbuff_data.offset.x = context->time_elapsed;
+	context->common_cbuff_data.mouse_pos = V4(ImGui::GetMousePos().x, ImGui::GetMousePos().y, 1.0, 1.0);
 
 	rendering_stage stage 	= context->dx_memory_arena.load_by_idx<rendering_stage>(context->rendering_stages.ptr, 0); // NOTE(DH): This needs to be compute stage :)
 	resource *resources 	= context->dx_memory_arena.get_array<resource>(stage.resources_array);
@@ -957,7 +961,7 @@ void update(dx_context *context)
 		{
 			case resource::TYPE::constant_buffer: {
 				memcpy(resources[idx].info.cbuffer.mapped_view, &context->common_cbuff_data, sizeof(context->common_cbuff_data));
-				return;
+				//return;
 			}; break;
 
 			default: {}; break;
@@ -965,7 +969,7 @@ void update(dx_context *context)
 	}
 
 	// TODO(DH): Move this to ^
-	//memcpy(entity->cb_data_begin, &entity->cb_scene_data, sizeof(entity->cb_scene_data));
+	memcpy(entity->cb_data_begin, &context->common_cbuff_data, sizeof(context->common_cbuff_data));
 }
 
 void recompile_shader(dx_context *ctx, rendering_stage rndr_stage)
@@ -1315,14 +1319,14 @@ ID3D12GraphicsCommandList* generate_command_buffer(dx_context *context)
 	set_render_target(context->g_command_list, context->g_rtv_descriptor_heap, 1, FALSE, context->g_frame_index, context->g_rtv_descriptor_size);
 
     // Record commands.
-    // const float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
-    // context->g_command_list->ClearRenderTargetView
-	// (
-	// 	get_rtv_descriptor_handle(context->g_rtv_descriptor_heap, context->g_frame_index, context->g_rtv_descriptor_size), 
-	// 	clearColor, 
-	// 	0, 
-	// 	nullptr
-	// );
+    const float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
+    context->g_command_list->ClearRenderTargetView
+	(
+		get_rtv_descriptor_handle(context->g_rtv_descriptor_heap, context->g_frame_index, context->g_rtv_descriptor_size), 
+		clearColor, 
+		0, 
+		nullptr
+	);
 	
 	// Execute bundle
 	context->g_command_list->ExecuteBundle(entity.bundle);
@@ -1408,32 +1412,59 @@ CD3DX12_CPU_DESCRIPTOR_HANDLE create_uav_u32_buffer_descriptor_view(ID3D12Device
 	return view;
 }
 
-func create_pipeline(ID3D12Device2* device, pipeline::type type, WCHAR* shader_path, LPCSTR entry_point_name, LPCSTR target_name, memory_arena *arena, ID3D12RootSignature *root_sig) -> pipeline
+func create_pipeline(ID3D12Device2* device, pipeline tmplate, memory_arena *arena, ID3D12RootSignature *root_sig) -> pipeline
 {
 	pipeline result = {};
-	result.ty = type;
-	result.shader_path 				= arena->push_string(shader_path);
-	result.shader_entry_point_name 	= arena->push_string((char*)entry_point_name);
-	result.shader_version_name 		= arena->push_string((char*)target_name);
+	result.ty = tmplate.ty;
+
 	//compile shaders
-	auto final_path = get_shader_code_path<WCHAR>(shader_path, arena);
-	result.shader_blob = compile_shader_from_file(final_path, nullptr, nullptr, entry_point_name, target_name, 0, 0); // TODO(DH): Add compile flags, see for example in your code!
+	auto final_path = get_shader_code_path<WCHAR>(arena->get_ptr<WCHAR>(tmplate.shader_path), arena);
 	
 	// NOTE(DH): You can also compile with just plain code text without file!
 	// result.shader_blob = compile_shader(shader_text, sizeof(shader_text), nullptr, nullptr, "CSMain", "cs_5_0", 0, 0);
-	
-	D3D12_COMPUTE_PIPELINE_STATE_DESC desc = {};
-	desc.pRootSignature = root_sig;
-	desc.CS = CD3DX12_SHADER_BYTECODE(result.shader_blob);
-	ThrowIfFailed(device->CreateComputePipelineState(&desc, IID_PPV_ARGS(&result.state)));
 
-	// Assign root signature
-	result.root_signature = root_sig;
+	switch(tmplate.ty) {
+		case pipeline::compute: {
+			LPCSTR entry_name = arena->get_ptr<char>(tmplate.compute_part.entry_name);
+			LPCSTR target_name = arena->get_ptr<char>(tmplate.compute_part.version_name);
+			result.compute_part.shader_blob = compile_shader_from_file(final_path, nullptr, nullptr, entry_name, target_name, 0, 0); // TODO(DH): Add compile flags, see for example in your code!
+
+			D3D12_COMPUTE_PIPELINE_STATE_DESC desc = {};
+			desc.pRootSignature = root_sig;
+			desc.CS = CD3DX12_SHADER_BYTECODE(result.compute_part.shader_blob);
+			ThrowIfFailed(device->CreateComputePipelineState(&desc, IID_PPV_ARGS(&result.state)));
+
+			// Assign root signature
+			result.root_signature = root_sig;
+		}; break;
+
+		// NOTE(DH): We need to remember that pixel shader called after vertex shader and
+		// result of vertex shader is passed to pixel shader input. Here we assign and build how this
+		// input should look like!
+		case pipeline::graphics: {
+			 // Describe and create the graphics pipeline state object (PSO).
+			// D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+			// psoDesc.InputLayout = { input_element_descs, _countof(input_element_descs) };
+			// psoDesc.pRootSignature = root_sig;
+			// psoDesc.VS = CD3DX12_SHADER_BYTECODE(result.vertex_shader);
+			// psoDesc.PS = CD3DX12_SHADER_BYTECODE(result.pixel_shader);
+			// psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+			// psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+			// psoDesc.DepthStencilState.DepthEnable = FALSE;
+			// psoDesc.DepthStencilState.StencilEnable = FALSE;
+			// psoDesc.SampleMask = UINT_MAX;
+			// psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+			// psoDesc.NumRenderTargets = 1;
+			// psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+			// psoDesc.SampleDesc.Count = 1;
+			// ThrowIfFailed(device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&result.state)));
+		}; break;
+	}
 
 	return result;
 }
 
-func initialize_compute_pipeline(ID3D12Device2* device, const char* entry_point_name, memory_arena *arena, arena_array resources) -> pipeline
+func initialize_compute_pipeline(ID3D12Device2* device, char* entry_point_name, memory_arena *arena, arena_array resources) -> pipeline
 {
 	D3D12_FEATURE_DATA_ROOT_SIGNATURE 	feature_data = create_feature_data_root_signature(device);
 	const CD3DX12_STATIC_SAMPLER_DESC 	sampler(0, D3D12_FILTER_MIN_MAG_MIP_LINEAR);
@@ -1482,7 +1513,11 @@ func initialize_compute_pipeline(ID3D12Device2* device, const char* entry_point_
 	auto root_signature_blob = serialize_versioned_root_signature(root_signature_desc, feature_data);
 
 	ID3D12RootSignature* root_signature = create_root_signature(device, root_signature_blob);
-	pipeline pipeline = create_pipeline(device, pipeline::compute, L"example_03.hlsl", entry_point_name, "cs_5_0", arena, root_signature);
+	auto path 			= arena->push_string(L"example_03.hlsl");
+	auto entry_point 	= arena->push_string(entry_point_name);
+	auto version 		= arena->push_string("cs_5_0");
+	pipeline tmplate = {.ty = pipeline::compute, .shader_path = path,.compute_part = { .entry_name = entry_point, .version_name = version}};
+	pipeline pipeline = create_pipeline(device, tmplate, arena, root_signature);
 
 	pipeline.number_of_resources = resources.count;
 	return pipeline;
@@ -1532,8 +1567,8 @@ func create_compute_rendering_stage(dx_context *ctx, ID3D12Device2* device, D3D1
 	++stage.dsc_heap.next_resource_idx;
 	++ctx->resources_and_views.count;
 
-	stage.rndr_pass_01.curr_pipeline 	= initialize_compute_pipeline		(device, "Splat", arena, stage.resources_array);
-	stage.rndr_pass_02.curr_pipeline 	= initialize_compute_pipeline		(device, "CSMain", arena, stage.resources_array);
+	stage.rndr_pass_01.curr_pipeline = initialize_compute_pipeline(device, "Splat", arena, stage.resources_array);
+	stage.rndr_pass_02.curr_pipeline = initialize_compute_pipeline(device, "CSMain", arena, stage.resources_array);
 
 	return stage;
 }
