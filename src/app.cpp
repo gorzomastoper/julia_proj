@@ -18,6 +18,8 @@
 
 #include "util/types.h"
 #include "util/memory_management.h"
+#include "simulation_of_particles.h"
+#include "simulation_of_particles.cpp"
 #include "dx_backend.h"
 
 //NOTE(DH): ImGUI implementation import {
@@ -210,8 +212,7 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 						// Recompile shaders if needed
 						if(directx_context.g_recompile_shader)
 						{
-							rendering_stage compute_stage = directx_context.dx_memory_arena.load_by_idx<rendering_stage>(directx_context.rendering_stages.ptr, 0);
-							recompile_shader(&directx_context, compute_stage);
+							recompile_shader(&directx_context, directx_context.compute_stage);
 							directx_context.g_recompile_shader = false;
 						}
 					}

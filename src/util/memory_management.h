@@ -13,14 +13,16 @@ void* allocate_memory(void* base, size_t size);
 
 
 // NOTE(DH): Used to locate place for actual data in arena
+template<typename T>
 struct arena_ptr {
 	u32 offset; // TODO(DH): Make this offset 8 bytes, because we (want?) to use more than 4 gb memory :)
 };
 
+template<typename T>
 struct arena_array {
 	u32 capacity;
 	u32 count;
-	arena_ptr ptr;
+	arena_ptr<T> ptr;
 };
 
 template<typename T>
@@ -38,7 +40,7 @@ struct memory_arena
 
 private:
 	template<typename T>
-	inline func mem_alloc_aligned(memory_arena *arena) -> arena_ptr
+	inline func mem_alloc_aligned(memory_arena *arena) -> arena_ptr<T>
 	{ 
 		usize size = get_effective_size_for(arena, sizeof(stored_elem<T>), default_arena_alignment());
 		
@@ -46,7 +48,7 @@ private:
 		
 		usize alignment_offset = get_alignment_offset(arena, default_arena_alignment());
 
-		arena_ptr result = {.offset = (u32)(arena->used + alignment_offset)}; // TODO(DH): Get rid of this ugly convertion, please!!!
+		arena_ptr<T> result = {.offset = (u32)(arena->used + alignment_offset)}; // TODO(DH): Get rid of this ugly convertion, please!!!
 		arena->used += size;
 		
 		assert(size >= sizeof(T));
@@ -54,7 +56,7 @@ private:
 	}
 
 	template<typename T>
-	inline func mem_alloc_aligned(memory_arena *arena, usize count) -> arena_ptr
+	inline func mem_alloc_aligned(memory_arena *arena, usize count) -> arena_ptr<T>
 	{ 
 		usize memory_size = (sizeof(T) * count) + sizeof(stored_elem<T>::reserved);
 		usize size = get_effective_size_for(arena, memory_size, default_arena_alignment());
@@ -62,7 +64,7 @@ private:
 		assert((arena->used + size) <= arena->size);
 		
 		usize alignment_offset = get_alignment_offset(arena, default_arena_alignment());
-		arena_ptr result = {.offset = (u32)(arena->used + alignment_offset)}; // TODO(DH): Get rid of this ugly convertion, please!!!
+		arena_ptr<T> result = {.offset = (u32)(arena->used + alignment_offset)}; // TODO(DH): Get rid of this ugly convertion, please!!!
 		arena->used += size;
 		
 		assert(size >= memory_size);
@@ -71,13 +73,13 @@ private:
 
 public:
 	template<typename T>
-	inline func load(arena_ptr ptr) -> T {
+	inline func load(arena_ptr<T> ptr) -> T {
 		stored_elem<T> *elem = (stored_elem<T>*)(this->base + ptr.offset);
 		return elem->data;
 	}
 
 	template<typename T>
-	inline func write_array(T* data_to_copy, usize count) -> arena_array {
+	inline func write_array(T* data_to_copy, usize count) -> arena_array<T> {
 		arena_array array = {.capacity = (u32)count, .count = count, .ptr = mem_alloc_aligned<T>(this, count)};
 		stored_elem<T> *elem = (stored_elem<T>*)(this->base + array.ptr.offset);
 		memcpy((T*)&elem->data, data_to_copy, sizeof(T) * count);
@@ -85,7 +87,7 @@ public:
 	}
 
 	template<typename T>
-	inline func write(T data_to_copy) -> arena_ptr {
+	inline func write(T data_to_copy) -> arena_ptr<T> {
 		arena_ptr ptr = mem_alloc_aligned<T>(this);
 		stored_elem<T> *elem = (stored_elem<T>*)(this->base + ptr.offset);
 		elem->data = data_to_copy;
@@ -93,44 +95,44 @@ public:
 	}
 
 	template<typename T>
-	inline func push_data(T data) -> arena_ptr {
+	inline func push_data(T data) -> arena_ptr<T> {
 		arena_ptr ptr = mem_alloc_aligned<T>(this);
 		return ptr;
 	}
 
 	template<typename T>
-	inline func push_array(usize count) -> arena_array {
+	inline func push_array(usize count) -> arena_array<T> {
 		return {.capacity = (u32)count, .count = 0, .ptr = mem_alloc_aligned<T>(this, count)};
 	}
 
 	template<typename T>
-	inline func load_by_idx(arena_ptr ptr, u32 idx) -> T {
+	inline func load_by_idx(arena_ptr<T> ptr, u32 idx) -> T {
 		stored_elem<T> *elem = (stored_elem<T>*)(this->base + ptr.offset);
 		//assert(elem->reserved >= idx);
 		return ((T*)&elem->data)[idx];
 	}
 
 	template<typename T>
-	inline func load_ptr_by_idx(arena_ptr ptr, u32 idx) -> T* {
+	inline func load_ptr_by_idx(arena_ptr<T> ptr, u32 idx) -> T* {
 		stored_elem<T> *elem = (stored_elem<T>*)(this->base + ptr.offset);
 		//assert(elem->reserved >= idx);
 		return &((T*)&elem->data)[idx];
 	}
 
 	template<typename T>
-	inline func get_ptr(arena_ptr ptr) -> T* {
+	inline func get_ptr(arena_ptr<T> ptr) -> T* {
 		stored_elem<T> *elem = (stored_elem<T>*)(this->base + ptr.offset);
 		return &elem->data;
 	}
 
 	template<typename T>
-	inline func get_array(arena_array array) -> T* {
+	inline func get_array(arena_array<T> array) -> T* {
 		stored_elem<T> *elem = (stored_elem<T>*)(this->base + array.ptr.offset);
 		return &elem->data;
 	}
 
 		template<typename T>
-	inline func push_string(T* string) -> arena_ptr {
+	inline func push_string(T* string) -> arena_ptr<T> {
 		// NOTE(DH): Find out letter count in string
 		u32 count = 0; while(true) { if(string[count] == 0) { break; } ++count;}
 		count += 1; // NOTE(DH): This is for null terminated symbol!
