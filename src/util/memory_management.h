@@ -10,7 +10,7 @@
 #define Terabytes(Value) (Gigabytes(Value)*1024LL)
 
 void* allocate_memory(void* base, size_t size);
-
+inline usize default_arena_alignment(void);
 
 // NOTE(DH): Used to locate place for actual data in arena
 template<typename T>

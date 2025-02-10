@@ -61,9 +61,9 @@ struct vertex
 struct c_buffer
 {
 	v4 offset;
-	v4 mouse_pos;
-	mat4 MVP_matrix;
-	v4 padding[10]; // Padding so the constant buffer is 256-byte aligned.
+	//v4 mouse_pos;
+	//mat4 MVP_matrix;
+	v4 padding[15]; // Padding so the constant buffer is 256-byte aligned.
 };
 static_assert((sizeof(c_buffer) % 256) == 0, "Constant Buffer size must be 256-byte aligned");
 
@@ -98,8 +98,8 @@ struct res_texture {
 
 	static inline func create_texture_2d(ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u32 width ,u32 height,	u8* texture_data, 	u32 register_index) -> res_texture;
 	static inline func create_texture_1d(ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u32 width, 				u8* texture_data,	u32 register_index) -> res_texture;
-	inline func recreate_texture_2d(ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 width, u32 height,	u8* texture_data) -> res_texture;
-	inline func recreate_texture_1d(ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 width, 				u8* texture_data) -> res_texture;
+	inline func recreate_texture_2d(ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 width, u32 height,			u8* texture_data) -> res_texture;
+	inline func recreate_texture_1d(ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 width, 					u8* texture_data) -> res_texture;
 };
 
 struct res_buffer {
@@ -118,19 +118,25 @@ struct res_buffer {
 		constant_buffer = 0,
 		buffer2d,
 		buffer1d,
+		index_buffer,
+		vertex_buffer,
 	} type;
 
 	union {
 		struct { u32 res_and_view_idx; u32 count_x; 	u32 count_y; 		u32 register_index;	u32 heap_idx;} buffer2d; 
 		struct { u32 res_and_view_idx; u32 count; 							u32 register_index;	u32 heap_idx;} buffer1d;
+		struct { ID3D12Resource *resource; D3D12_VERTEX_BUFFER_VIEW view; 	u32 register_index; u32 heap_idx;} vtex_buffer;
+		struct { ID3D12Resource *resource; D3D12_INDEX_BUFFER_VIEW 	view; 	u32 register_index; u32 heap_idx;} idex_buffer;
 		struct { u32 res_and_view_idx; u32 data_idx;	u8* mapped_view;	u32 register_index;	u32 heap_idx;} cbuffer;
 	} info;
 
-	static inline func 	create_cbuffer		(ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u32 register_index) -> res_buffer;
-	static inline func 	create_buffer_2d	(ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u32 count_x, u32 count_y, u32 register_index) -> res_buffer;
-	static inline func 	create_buffer_1d	(ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u32 count, u32 register_index) -> res_buffer;
-	inline func 		recreate_buffer_2d	(ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 count_x, u32 count_y) -> res_buffer;
-	inline func 		recreate_buffer_1d	(ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 count) -> res_buffer;
+	static inline func 	create_cbuffer		(ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, 	u32 register_index) -> res_buffer;
+	static inline func 	create_buffer_2d	(ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, 	u32 count_x, u32 count_y, u32 register_index) -> res_buffer;
+	static inline func 	create_buffer_1d	(ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, 	u32 count, u32 register_index) -> res_buffer;
+	static inline func 	create_buffer_vtex	(ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, u8* data, u32 size_of_data, 				u32 register_index) -> res_buffer;
+	static inline func 	create_buffer_idex	(ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, u8* data, u32 size_of_data, 				u32 register_index) -> res_buffer;
+	inline func 		recreate_buffer_2d	(ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, 	u32 count_x, u32 count_y) -> res_buffer;
+	inline func 		recreate_buffer_1d	(ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, 	u32 count) -> res_buffer;
 	// inline func 		recreate_cbuffer	(ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 data_idx, u8* mapped_view) -> res_buffer;
 };
 
@@ -182,11 +188,16 @@ struct graphic_pipeline {
 	ID3D12PipelineState*			state;
 	ID3DBlob* 						vertex_shader_blob;
 	ID3DBlob* 						pixel_shader_blob;
+	ID3D12Resource*					index_buffer;
+	ID3D12Resource*					vertex_buffer;
+	D3D12_VERTEX_BUFFER_VIEW		vert_buff_view;
+	D3D12_INDEX_BUFFER_VIEW			indx_buff_view;
 	arena_array<res_buffer> 		buffers;
 	arena_array<res_render_target> 	rtv_s;
 	arena_array<res_texture>		textures;
 	arena_array<res_sampler>		samplers;
 	u32								number_of_resources;
+	u32								mesh_instance_num;
 public:
 	static inline func init__	(memory_arena *arena, u32 max_num_of_resources) -> graphic_pipeline { 
 		graphic_pipeline result = {}; 
@@ -195,15 +206,29 @@ public:
 		result.rtv_s 	= arena->push_array<res_render_target>(max_num_of_resources); // NOTE(DH): This is per resource type
 		return result; 
 	};
-	inline func create_root_sig	(ID3D12Device2 *device, memory_arena *arena) 	-> graphic_pipeline;
-	inline func bind_texture	(res_texture 	texture, memory_arena arena) 	-> graphic_pipeline;
-	inline func bind_buffer		(res_buffer 	buffer, memory_arena arena) 	-> graphic_pipeline;
-	inline func bind_rndr_target(res_render_target 	rt, memory_arena arena) 	-> graphic_pipeline;
-	inline func bind_sampler	(res_sampler 	sampler, memory_arena arena) 	-> graphic_pipeline;
-	inline func bind_vert_shader(ID3DBlob* shader) 								-> graphic_pipeline;
-	inline func bind_frag_shader(ID3DBlob* shader) 								-> graphic_pipeline;
-	inline func bind_root_sig	(ID3D12RootSignature* root_signature) 			-> graphic_pipeline;
-	inline func finalize		(dx_context *ctx, ID3D12Device2* device, descriptor_heap *heap) 	-> graphic_pipeline;
+	inline func create_root_sig		(ID3D12Device2 *device, memory_arena *arena) 	-> graphic_pipeline;
+
+	inline func bind_texture		(res_texture 	texture, memory_arena arena) 	-> graphic_pipeline;
+
+	inline func bind_buffer			(res_buffer 	buffer, memory_arena arena) 	-> graphic_pipeline;
+
+	inline func bind_rndr_target	(res_render_target 	rt, memory_arena arena) 	-> graphic_pipeline;
+
+	inline func bind_sampler		(res_sampler 	sampler, memory_arena arena) 	-> graphic_pipeline;
+
+	inline func bind_vert_buffer	(res_buffer 	buffer, memory_arena arena) 	-> graphic_pipeline;
+
+	inline func bind_indx_buffer	(res_buffer 	buffer, memory_arena arena) 	-> graphic_pipeline;
+
+	inline func bind_vert_shader	(ID3DBlob* shader) 								-> graphic_pipeline;
+
+	inline func bind_frag_shader	(ID3DBlob* shader) 								-> graphic_pipeline;
+
+	inline func bind_root_sig		(ID3D12RootSignature* root_signature) 			-> graphic_pipeline;
+
+	inline func bind_mesh			(res_buffer	mesh, res_buffer indices, memory_arena arena) -> graphic_pipeline;
+	
+	inline func finalize			(dx_context *ctx, ID3D12Device2* device, descriptor_heap *heap) 	-> graphic_pipeline;
 };
 
 struct compute_pipeline {

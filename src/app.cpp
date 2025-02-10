@@ -194,14 +194,14 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 						directx_context.dt_for_frame = delta_time * 0.001;
 						update(&directx_context);
 
-						auto triangle_cmd_list = generate_command_buffer(&directx_context);
-						// auto compute_cmd_list = generate_compute_command_buffer(&directx_context);
+						// auto triangle_cmd_list = generate_command_buffer(&directx_context);
+						auto compute_cmd_list = generate_compute_command_buffer(&directx_context);
 						auto imgui_cmd_list = generate_imgui_command_buffer(&directx_context);
 
 						float clear_color[] = { 0.0f, 0.2f, 0.4f, 1.0f };
-						// render(&directx_context, compute_cmd_list);
+						render(&directx_context, compute_cmd_list);
 						// clear_render_target(directx_context, triangle_cmd_list, clear_color);
-						render(&directx_context, triangle_cmd_list);
+						// render(&directx_context, triangle_cmd_list);
 						render(&directx_context, imgui_cmd_list);
 
 						// Do not wait for frame, just move to the next one
