@@ -420,27 +420,8 @@ void resize(dx_context *context, u32 width, u32 height)
 
 	back_buffer->recreate_rt_2d			(context->g_device, context->dx_memory_arena, &context->compute_stage_heap, &context->resources_and_views, width, height);
 	// back_buffer_02->recreate_rt_2d			(context->g_device, context->dx_memory_arena, &context->compute_stage_heap, &context->resources_and_views, width, height);
-	// atomic_buffer->recreate_buffer_1d	(context->g_device, context->dx_memory_arena, &context->compute_stage_heap, &context->resources_and_views, width * height);
+	atomic_buffer->recreate_buffer_1d	(context->g_device, context->dx_memory_arena, &context->compute_stage_heap, &context->resources_and_views, width * height);
 	// atomic_buffer_02->recreate_buffer_1d	(context->g_device, context->dx_memory_arena, &context->compute_stage_heap, &context->resources_and_views, width * height);
-	// *back_buffer	= create_resource(
-	// 	context, 
-	// 	{.format = back_buffer->format, .type = back_buffer->type, .info.render_target2d = {.width = width, .height = height}},
-	// 	context->resources_and_views, 
-	// 	compute_stage->dsc_heap, 
-	// 	back_buffer->info.render_target2d.register_idx,
-	// 	true,
-	// 	0
-	// );
-
-	// *atomic_buffer	= create_resource(
-	// 	context, 
-	// 	{.format = atomic_buffer->format, .type = atomic_buffer->type, .info.buffer1d = {.count = width * height}}, 
-	// 	context->resources_and_views, 
-	// 	compute_stage->dsc_heap, 
-	// 	atomic_buffer->info.buffer1d.register_idx,
-	// 	true,
-	// 	1
-	// );
 
 	//Finally resizing the SwapChain and relative Descriptor Heap
 	DXGI_SWAP_CHAIN_DESC swapChainDesc = {};
@@ -691,7 +672,8 @@ rendered_entity create_entity(dx_context &context)
 		UINT compileFlags = 0;
 	#endif
 		// NOTE(DH): Compile shaders (vertex and pixel)
-		auto final_path 		= get_shader_code_path<WCHAR>(L"shaders.hlsl");
+		WCHAR shader_name[] 	= L"shaders.hlsl";
+		auto final_path 		= get_shader_code_path<WCHAR>(shader_name);
 		WCHAR buffer[512];
 		_snwprintf_s(buffer, sizeof(buffer), L"%s", final_path);
 		result.vertex_shader 	= compile_shader_from_file(buffer, nullptr, nullptr, "VSMain", "vs_5_0", compileFlags, 0);
@@ -1761,7 +1743,7 @@ inline func res_buffer::create_buffer_vtex	(ID3D12Device2* device, memory_arena 
 	result.info.vtex_buffer.heap_idx = heap->next_resource_idx++;
 
 	{
-		auto heap_properties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+		auto heap_properties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
 		auto resource_desc = CD3DX12_RESOURCE_DESC::Buffer(size_of_data);
 		ThrowIfFailed(device->CreateCommittedResource(&heap_properties,D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&result.info.vtex_buffer.resource)));
 		
@@ -1787,7 +1769,7 @@ inline func res_buffer::create_buffer_idex	(ID3D12Device2* device, memory_arena 
 	result.info.idex_buffer.heap_idx = heap->next_resource_idx++;
 
 	{
-		auto heap_properties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+		auto heap_properties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
 		auto resource_desc = CD3DX12_RESOURCE_DESC::Buffer(size_of_data);
 		ThrowIfFailed(device->CreateCommittedResource(&heap_properties,D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&result.info.idex_buffer.resource)));
 		
@@ -1843,7 +1825,7 @@ inline func res_buffer::recreate_buffer_1d	(ID3D12Device2* device, memory_arena 
 	DXGI_FORMAT allocation_format = DXGI_FORMAT_UNKNOWN;
 	
 	res_n_view->addr = allocate_data_on_gpu(device, heap_type, heap_flags, texture_layout, resource_flags, resource_states, resource_dimension, sizeof(u32) * this->info.buffer1d.count, 1, allocation_format);
-	res_n_view->view = create_uav_u32_buffer_descriptor_view(device, this->info.buffer1d.res_and_view_idx, heap->addr, heap->descriptor_size, this->info.buffer1d.count, allocation_format, uav_dimension, res_n_view->addr);
+	res_n_view->view = create_uav_u32_buffer_descriptor_view(device, this->info.buffer1d.heap_idx, heap->addr, heap->descriptor_size, this->info.buffer1d.count, allocation_format, uav_dimension, res_n_view->addr);
 	res_n_view->addr->SetName(L"BUFFER1D");
 
 	return *this;
@@ -2579,9 +2561,8 @@ ID3D12GraphicsCommandList* generate_compute_command_buffer(dx_context *ctx)
 		}
 	}
 
-	ctx->g_compute_command_list->Dispatch(16,16,12);
+	ctx->g_compute_command_list->Dispatch(32,32,12);
 	
-	ctx->g_compute_command_list->SetComputeRootSignature(c_p_2.root_signature);
 	ctx->g_compute_command_list->SetPipelineState(c_p_2.state);
 	u32 width = rtv_s[0].info.render_target2d.width;
 	u32 height = rtv_s[0].info.render_target2d.height;
