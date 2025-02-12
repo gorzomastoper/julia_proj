@@ -12,6 +12,10 @@
 void* allocate_memory(void* base, size_t size);
 inline usize default_arena_alignment(void);
 
+struct uni_p {
+	
+};
+
 // NOTE(DH): Used to locate place for actual data in arena
 template<typename T>
 struct arena_ptr {
