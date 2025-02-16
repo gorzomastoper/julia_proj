@@ -101,6 +101,8 @@ public:
 	template<typename T>
 	inline func push_data(T data) -> arena_ptr<T> {
 		arena_ptr ptr = mem_alloc_aligned<T>(this);
+		stored_elem<T> *elem = (stored_elem<T>*)(this->base + ptr.offset);
+		elem->data = data;
 		return ptr;
 	}
 
