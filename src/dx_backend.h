@@ -223,7 +223,7 @@ struct render_target1d {
 
 template<bool, typename T, typename TS>
 struct t_list_cons {
-	T el;
+	arena_ptr<T> el;
 	TS tail;
 	
 	func get_size() { return tail.get_size() + 1; }
@@ -239,13 +239,13 @@ struct binding {
 	using BUF_TS_U = BUF_TS;
 
 	template<bool B, typename BUF_TNEW>
-	func bind_buffer(BUF_TNEW buffer) -> binding<t_list_cons<B, BUF_TNEW, BUF_TS>> {
-		return binding {.buffer = buffer, .tail = *this};
+	func bind_buffer(arena_ptr<BUF_TNEW> buffer) -> binding<t_list_cons<B, BUF_TNEW, BUF_TS>> {
+		return binding<t_list_cons<B, BUF_TNEW, BUF_TS>> { .data = { .el = buffer, .tail = data} };
 	}
 };
 
 static inline func mk_bindings() -> binding<t_list_nil> {
-	return binding<t_list_nil>{};
+	return binding<t_list_nil>{ .data = {}};
 }
 
 struct sampler {
@@ -283,11 +283,11 @@ struct graphic_pipeline {
 	void(*build_binding_table)(ID3D12GraphicsCommandList *cmd_list, void* bindings);
 	
 	template<typename T>
-	inline func create_root_sig		(binding<T> bindings, ID3D12Device2 *device, memory_arena *arena) -> graphic_pipeline;
+	inline func create_root_sig		(binding<T> bindings, ID3D12Device2 *device, memory_arena *arena) 	-> graphic_pipeline;
 
-	inline func bind_vert_shader	(ID3DBlob* shader) 												-> graphic_pipeline;
+	inline func bind_vert_shader	(ID3DBlob* shader) 													-> graphic_pipeline;
 
-	inline func bind_frag_shader	(ID3DBlob* shader) 												-> graphic_pipeline;
+	inline func bind_frag_shader	(ID3DBlob* shader) 													-> graphic_pipeline;
 	
 	template<typename T>
 	inline func finalize			(binding<T> bindings, dx_context *ctx, ID3D12Device2* device, descriptor_heap *heap) -> graphic_pipeline;
@@ -304,13 +304,13 @@ public:
 		return result;
 	};
 
-	inline func create_root_sig	(ID3D12Device2 *device, memory_arena *arena) 	-> compute_pipeline;
-	// inline func bind_texture	(res_texture 	texture, memory_arena arena) 	-> compute_pipeline;
-	// inline func bind_rndr_target(res_render_target rt, memory_arena arena) 		-> compute_pipeline;
-	// inline func bind_buffer		(res_buffer 	buffer, memory_arena arena) 	-> compute_pipeline;
-	// inline func bind_sampler	(res_sampler 	sampler, memory_arena arena) 	-> compute_pipeline;
-	inline func bind_shader		(ID3DBlob* shader) 								-> compute_pipeline;
-	inline func finalize		(dx_context *ctx, ID3D12Device2* device, descriptor_heap *heap) 	-> compute_pipeline;
+	template<typename T>
+	inline func create_root_sig	(binding<T> bindings, ID3D12Device2 *device, memory_arena *arena) 	-> compute_pipeline;
+
+	inline func bind_shader		(ID3DBlob* shader) -> compute_pipeline;
+
+	template<typename T>
+	inline func finalize		(binding<T> bindings, dx_context *ctx, ID3D12Device2* device, descriptor_heap *heap) 	-> compute_pipeline;
 };
 
 struct render_pass {
@@ -422,6 +422,9 @@ struct dx_context
 	descriptor_heap graphics_stage_heap;
 	descriptor_heap compute_stage_heap;
 
+	ID3D12GraphicsCommandList *graph_command_list;
+	ID3D12GraphicsCommandList *compute_command_list;
+
 	// NOTE(DH): Common constant buffer data
 	c_buffer common_cbuff_data;
 
@@ -433,6 +436,7 @@ struct dx_context
 	RECT g_wind_rect;
 
 	void (*resize)(dx_context *context, u32 width, u32 height, arena_ptr<void> bindings);
+	void (*generate_binding_table)(dx_context *context, arena_ptr<void> bindings);
 
 	//NOTE: When you "signal" the Command Queue for a Frame, it means we set a new frame fence value
 	//Other window state variables

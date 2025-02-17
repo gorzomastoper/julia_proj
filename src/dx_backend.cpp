@@ -384,45 +384,52 @@ D3D12_VIEWPORT create_viewport(f32 width, f32 height, f32 pos_x /*not in use*/, 
 
 template<typename T>
 struct Resize {
-	static func resize(T list, ID3D12Device2* dev, memory_arena ar, descriptor_heap *heap, arena_array<resource_and_view> *rnv, u32 w, u32 h) -> void;
+	static func resize(T list, ID3D12Device2* dev, memory_arena ar, descriptor_heap *heap, arena_array<resource_and_view> *rnv, u32 w, u32 h) -> void { static_assert(!1, "");};
 };
 
 template<typename TS>
 struct Resize<t_list_cons<true, buffer_2d, TS>> {
 	static func resize(t_list_cons<true, buffer_2d, TS> list, ID3D12Device2* dev, memory_arena ar, descriptor_heap *heap, arena_array<resource_and_view> *rnv, u32 w, u32 h) -> void{
-		list.el.recreate(dev, ar, heap, rnv, w, h);
-		list.tail.resize(list, dev, ar, heap, rnv, w, h);
+		ar.get_ptr(list.el)->recreate(dev, ar, heap, rnv, w, h);
+		Resize<TS>::resize(list.tail, dev, ar, heap, rnv, w, h);
 	}
 };
 
 template<typename TS>
 struct Resize<t_list_cons<true, buffer_1d, TS>> {
 	static func resize(t_list_cons<true, buffer_1d, TS> list, ID3D12Device2* dev, memory_arena ar, descriptor_heap *heap, arena_array<resource_and_view> *rnv, u32 w, u32 h)-> void {
-		list.el.recreate(dev, ar, heap, rnv, w);
-		list.tail.resize(list, dev, ar, heap, rnv, w, h);
+		ar.get_ptr(list.el)->recreate(dev, ar, heap, rnv, w);
+		Resize<TS>::resize(list.tail, dev, ar, heap, rnv, w, h);
 	}
 };
 
 template<typename TS>
 struct Resize<t_list_cons<true, render_target2d, TS>> {
 	static func resize(t_list_cons<true, render_target2d, TS> list, ID3D12Device2* dev, memory_arena ar, descriptor_heap *heap, arena_array<resource_and_view> *rnv, u32 w, u32 h)-> void {
-		list.el.recreate(dev, ar, heap, rnv, w, h);
-		list.tail.resize(list, dev, ar, heap, rnv, w, h);
+		ar.get_ptr(list.el)->recreate(dev, ar, heap, rnv, w, h);
+		Resize<TS>::resize(list.tail, dev, ar, heap, rnv, w, h);
 	}
 };
 
 template<typename TS>
 struct Resize<t_list_cons<true, render_target1d, TS>> {
 	static func resize(t_list_cons<true, render_target1d, TS> list, ID3D12Device2* dev, memory_arena ar, descriptor_heap *heap, arena_array<resource_and_view> *rnv, u32 w, u32 h)-> void {
-		list.el.recreate(dev, ar, heap, rnv, w * h);
-		list.tail.resize(list, dev, ar, heap, rnv, w, h);
+		ar.get_ptr(list.el)->recreate(dev, ar, heap, rnv, w * h);
+		Resize<TS>::resize(list.tail, dev, ar, heap, rnv, w, h);
 	}
 };
 
 template<typename T, typename TS>
 struct Resize<t_list_cons<false, T, TS>> {
-	static func resize(t_list_cons<false, T, TS> list, ID3D12Device2* dev, memory_arena ar, descriptor_heap *heap, arena_array<resource_and_view> *rnv, u32 w, u32 h) -> void{
-		list.tail.resize(list, dev, ar, heap, rnv, w, h);
+	static func resize(t_list_cons<false, T, TS> list, ID3D12Device2* dev, memory_arena ar, descriptor_heap *heap, arena_array<resource_and_view> *rnv, u32 w, u32 h)-> void {
+		Resize<TS>::resize(list.tail, dev, ar, heap, rnv, w, h);
+	}
+};
+
+template<>
+struct Resize<t_list_nil> {
+	static func resize(t_list_nil list, ID3D12Device2* dev, memory_arena ar, descriptor_heap *heap, arena_array<resource_and_view> *rnv, u32 w, u32 h) -> void {
+		return;
 	}
 };
 
@@ -969,6 +976,91 @@ rendered_entity create_entity(dx_context &context)
 	return result;
 }
 
+template<typename T>
+struct GCB {
+	static func bind_root_sig_table(T list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void { static_assert(!1, "");};
+};
+
+template<bool B, typename TS>
+struct GCB<t_list_cons<B, buffer_cbuf, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, buffer_cbuf, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+		cmd_list->SetGraphicsRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(arena->get_ptr(list.el)->heap_idx, 1, device, heap));
+		GCB<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
+	}
+};
+
+template<bool B, typename TS>
+struct GCB<t_list_cons<B, buffer_2d, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, buffer_2d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+		cmd_list->SetGraphicsRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(arena->get_ptr(list.el)->heap_idx, 1, device, heap));
+		GCB<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
+	}
+};
+
+template<bool B, typename TS>
+struct GCB<t_list_cons<B, buffer_1d, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, buffer_1d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+		cmd_list->SetGraphicsRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(arena->get_ptr(list.el)->heap_idx, 1, device, heap));
+		GCB<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
+	}
+};
+
+template<bool B, typename TS>
+struct GCB<t_list_cons<B, buffer_vtex, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, buffer_vtex, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+		cmd_list->IASetVertexBuffers(0, 1, &arena->get_ptr(list.el)->view);
+		GCB<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
+	}
+};
+
+template<bool B, typename TS>
+struct GCB<t_list_cons<B, buffer_idex, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, buffer_idex, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+		cmd_list->IASetIndexBuffer(&arena->get_ptr(list.el)->view);
+		cmd_list->DrawIndexedInstanced(arena->get_ptr(list.el)->size_of_data / sizeof(u32), 1, 0, 0, 0);
+		GCB<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
+	}
+};
+
+template<bool B, typename TS>
+struct GCB<t_list_cons<B, texture_2d, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, texture_2d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+		cmd_list->SetGraphicsRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(arena->get_ptr(list.el)->heap_idx, 1, device, heap));
+		GCB<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
+	}
+};
+
+template<bool B, typename TS>
+struct GCB<t_list_cons<B, texture_1d, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, texture_1d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+		cmd_list->SetGraphicsRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(arena->get_ptr(list.el)->heap_idx, 1, device, heap));
+		GCB<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
+	}
+};
+
+template<bool B, typename TS>
+struct GCB<t_list_cons<B, render_target2d, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, render_target2d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+		cmd_list->SetGraphicsRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(arena->get_ptr(list.el)->heap_idx, 1, device, heap));
+		GCB<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
+	}
+};
+
+template<bool B, typename TS>
+struct GCB<t_list_cons<B, render_target1d, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, render_target1d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+		cmd_list->SetGraphicsRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(arena->get_ptr(list.el)->heap_idx, 1, device, heap));
+		GCB<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
+	}
+};
+
+template<>
+struct GCB<t_list_nil> {
+	static func bind_root_sig_table(t_list_nil list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+		return;
+	}
+};
+
 dx_context init_dx(HWND hwnd)
 {
 	dx_context result = {};
@@ -1063,19 +1155,26 @@ dx_context init_dx(HWND hwnd)
 		auto mtx_ptr 	= result.mem_arena.push_data(matrices);
 
 		// NOTE(DH): Create bindings
+		// Need to remember that order MATTER!
 		auto binds = mk_bindings()
 			.bind_buffer<false>	(cbuff_ptr)
-			.bind_buffer<false>	(mesh_ptr)
 			.bind_buffer<false>	(idx_ptr)
+			.bind_buffer<false>	(mesh_ptr)
 			.bind_buffer<true>	(mtx_ptr);
 
 		auto binds_ar_ptr = result.mem_arena.push_data(binds);
 		result.bindings = *(arena_ptr<void>*)(&binds_ar_ptr);
 
 		result.resize = [](dx_context *ctx, u32 width, u32 height, arena_ptr<void> bindings) {
-			arena_ptr<decltype(binds)> bnds_ptr;
+			arena_ptr<decltype(binds)> bnds_ptr = *(arena_ptr<decltype(binds)>*)&bindings;
 			auto bnds = ctx->mem_arena.get_ptr(bnds_ptr);
 			Resize<decltype(binds)::BUF_TS_U>::resize(bnds->data, ctx->g_device, ctx->mem_arena, &ctx->graphics_stage_heap, &ctx->resources_and_views, width, height); 
+		};
+
+		result.generate_binding_table = [](dx_context *ctx, arena_ptr<void> bindings) {
+			arena_ptr<decltype(binds)> bnds_ptr = *(arena_ptr<decltype(binds)>*)&bindings;
+			auto bnds = ctx->mem_arena.get_ptr(bnds_ptr);
+			GCB<decltype(binds)::BUF_TS_U>::bind_root_sig_table(bnds->data, 0, ctx->g_command_list, ctx->g_device, ctx->graphics_stage_heap.addr, &ctx->mem_arena);
 		};
 
 		graphic_pipeline graph_pipeline = 
@@ -1109,21 +1208,15 @@ dx_context init_dx(HWND hwnd)
 
 		compute_pipeline compute_pipeline_pass_01 = 
 		compute_pipeline::init__()
-			// .bind_rndr_target	(render_target, result.mem_arena)
-			// .bind_buffer		(hist_buffer, result.mem_arena)
-			// .bind_buffer		(cbuff, result.mem_arena)
 			.bind_shader		(shader_for_pass_01)
-			.create_root_sig	(result.g_device, &result.mem_arena)
-			.finalize			(&result, result.g_device, &result.compute_stage_heap);
+			.create_root_sig	(bindings, result.g_device, &result.mem_arena)
+			.finalize			(bindings, &result, result.g_device, &result.compute_stage_heap);
 
 		compute_pipeline compute_pipeline_pass_02 = 
 		compute_pipeline::init__()
-			// .bind_rndr_target	(render_target, result.mem_arena)
-			// .bind_buffer		(hist_buffer, result.mem_arena)
-			// .bind_buffer		(cbuff, result.mem_arena)
 			.bind_shader		(shader_for_pass_02)
-			.create_root_sig	(result.g_device, &result.mem_arena)
-			.finalize			(&result, result.g_device, &result.compute_stage_heap);
+			.create_root_sig	(bindings, result.g_device, &result.mem_arena)
+			.finalize			(bindings, &result, result.g_device, &result.compute_stage_heap);
 
 		result.compute_stage = 
 		rendering_stage::init__	(&result.mem_arena, 2)
@@ -1139,87 +1232,94 @@ dx_context init_dx(HWND hwnd)
 
 template<typename T>
 struct CRS {
-	func create_root_sig(T list, u32 current_resource, bool *is_texture_arr, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena);
+	static func create_root_sig(T list, u32 current_resource, bool *is_texture_arr, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void { static_assert(!1, "");};
 };
 
 template<bool B, typename TS>
 struct CRS<t_list_cons<B, buffer_cbuf, TS>> {
-	func create_root_sig(t_list_cons<B, buffer_cbuf, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) {
-		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, arena->get_ptr(list.data.el)->register_index, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
+	static func create_root_sig(t_list_cons<B, buffer_cbuf, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
+		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, arena->get_ptr(list.el)->register_index, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
 		is_texture[current_resource] = false;
-		create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
+		CRS<TS>::create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
 	}
 };
 
 template<bool B, typename TS>
 struct CRS<t_list_cons<B, buffer_2d, TS>> {
-	func create_root_sig(t_list_cons<B, buffer_2d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) {
-		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, arena->get_ptr(list.data.el)->register_index, 0 ,D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
+	static func create_root_sig(t_list_cons<B, buffer_2d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
+		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, arena->get_ptr(list.el)->register_index, 0 ,D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
 		is_texture[current_resource] = false;
-		create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
+		CRS<TS>::create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
 	}
 };
 
 template<bool B, typename TS>
 struct CRS<t_list_cons<B, buffer_1d, TS>> {
-	func create_root_sig(t_list_cons<B, buffer_1d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) {
-		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, arena->get_ptr(list.data.el)->register_index, 0 ,D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
+	static func create_root_sig(t_list_cons<B, buffer_1d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
+		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, arena->get_ptr(list.el)->register_index, 0 ,D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
 		is_texture[current_resource] = false;
-		create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
+		CRS<TS>::create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
 	}
 };
 
 template<bool B, typename TS>
 struct CRS<t_list_cons<B, buffer_vtex, TS>> {
-	func create_root_sig(t_list_cons<B, buffer_vtex, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) {
-		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, arena->get_ptr(list.data.el)->register_index, 0 ,D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
+	static func create_root_sig(t_list_cons<B, buffer_vtex, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
+		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, arena->get_ptr(list.el)->register_index, 0 ,D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
 		is_texture[current_resource] = false;
-		create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
+		CRS<TS>::create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
 	}
 };
 
 template<bool B, typename TS>
 struct CRS<t_list_cons<B, buffer_idex, TS>> {
-	func create_root_sig(t_list_cons<B, buffer_idex, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) {
-		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, arena->get_ptr(list.data.el)->register_index, 0 ,D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
+	static func create_root_sig(t_list_cons<B, buffer_idex, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
+		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, arena->get_ptr(list.el)->register_index, 0 ,D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
 		is_texture[current_resource] = false;
-		create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
+		CRS<TS>::create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
 	}
 };
 
 template<bool B, typename TS>
 struct CRS<t_list_cons<B, texture_2d, TS>> {
-	func create_root_sig(t_list_cons<B, texture_2d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) {
-		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, arena->get_ptr(list.data.el)->register_index, 0 ,D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
+	static func create_root_sig(t_list_cons<B, texture_2d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
+		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, arena->get_ptr(list.el)->register_index, 0 ,D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
 		is_texture[current_resource] = true;
-		create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
+		CRS<TS>::create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
 	}
 };
 
 template<bool B, typename TS>
 struct CRS<t_list_cons<B, texture_1d, TS>> {
-	func create_root_sig(t_list_cons<B, texture_1d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) {
-		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, arena->get_ptr(list.data.el)->register_index, 0, D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
+	static func create_root_sig(t_list_cons<B, texture_1d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
+		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, arena->get_ptr(list.el)->register_index, 0, D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
 		is_texture[current_resource] = true;
-		create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
+		CRS<TS>::create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
 	}
 };
 
 template<bool B, typename TS>
 struct CRS<t_list_cons<B, render_target2d, TS>> {
-	func create_root_sig(t_list_cons<B, render_target2d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) {
-		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, arena->get_ptr(list.data.el)->register_index, 0, D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
+	static func create_root_sig(t_list_cons<B, render_target2d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
+		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, arena->get_ptr(list.el)->register_index, 0, D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
 		is_texture[current_resource] = false;
-		create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
+		CRS<TS>::create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
 	}
 };
 
 template<bool B, typename TS>
 struct CRS<t_list_cons<B, render_target1d, TS>> {
-	func create_root_sig(t_list_cons<B, render_target1d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) {
-		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, arena->get_ptr(list.data.el)->register_index, 0, D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
+	static func create_root_sig(t_list_cons<B, render_target1d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
+		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, arena->get_ptr(list.el)->register_index, 0, D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
 		is_texture[current_resource] = false;
-		create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
+		CRS<TS>::create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
+	}
+};
+
+template<>
+struct CRS<t_list_nil> {
+	static func create_root_sig(t_list_nil list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
+		return;
 	}
 };
 
@@ -1231,7 +1331,7 @@ inline func graphic_pipeline::create_root_sig(binding<T> bindings, ID3D12Device2
 	bool is_texture[bindings.data.get_size()];
 	CD3DX12_DESCRIPTOR_RANGE1 ranges[bindings.data.get_size()];
 	
-	CRS<binding<T>>::create_root_sig(bindings.data, 0, is_texture, ranges, arena);
+	CRS<T>::create_root_sig(bindings.data, 0, is_texture, ranges, arena);
 		
 	CD3DX12_ROOT_PARAMETER1 root_parameters[bindings.data.get_size()];
 	for(u32 i = 0; i < this->number_of_resources; ++i) {
@@ -1258,17 +1358,17 @@ inline func graphic_pipeline::bind_frag_shader(ID3DBlob* shader) -> graphic_pipe
 
 template<typename T>
 struct Finalize {
-	static func finalize(T list, dx_context *ctx, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void;
+	static func finalize (T list, dx_context *ctx, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void { static_assert(!1, "");};
 };
 
 template<bool B, typename TS>
 struct Finalize<t_list_cons<B, texture_2d, TS>> {
 	static func finalize(t_list_cons<B, texture_2d, TS> list, dx_context *ctx, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
 
-		texture_2d texture_dsc = list.el;
-		resource_and_view *r_n_v = &ctx->mem_arena.get_array(ctx->resources_and_views)[texture_dsc.res_and_view_idx];
-		u32 width = GET_WIDTH(texture_dsc.width_and_height);
-		u32 height = GET_HEIGHT(texture_dsc.width_and_height);
+		texture_2d *texture_dsc = ctx->mem_arena.get_ptr(list.el);
+		resource_and_view *r_n_v = &ctx->mem_arena.get_array(ctx->resources_and_views)[texture_dsc->res_and_view_idx];
+		u32 width = GET_WIDTH(texture_dsc->width_and_height);
+		u32 height = GET_HEIGHT(texture_dsc->width_and_height);
 	
 		// Create the texture
 		{
@@ -1285,31 +1385,78 @@ struct Finalize<t_list_cons<B, texture_2d, TS>> {
 				&addr3,
 				D3D12_RESOURCE_STATE_GENERIC_READ,
 				nullptr,
-				IID_PPV_ARGS(&texture_dsc.staging_buff)));
+				IID_PPV_ARGS(&texture_dsc->staging_buff)));
 
 			D3D12_SUBRESOURCE_DATA texture_subresource_data = {};
-			texture_subresource_data.pData = &texture_dsc.texture_data[0];
+			texture_subresource_data.pData = &texture_dsc->texture_data[0];
 			texture_subresource_data.RowPitch = width * 4; //4 bytes per pixel
 			texture_subresource_data.SlicePitch = texture_subresource_data.RowPitch * height; //256x256 Width x Height
 
 			// NOTE(DH): This is important, because we use this resource not only in PIXEL SHADER BUT PROBABLY IN VERTEX SHADER, WE NEED EXPLICITLY MARK THIS FLAGS AS IT IS!!!
 			auto addr4 = CD3DX12_RESOURCE_BARRIER::Transition(r_n_v->addr, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE/* | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE*/);
-			UpdateSubresources(cmd_list, r_n_v->addr, texture_dsc.staging_buff, 0, 0, 1, &texture_subresource_data);
+			UpdateSubresources(cmd_list, r_n_v->addr, texture_dsc->staging_buff, 0, 0, 1, &texture_subresource_data);
 			cmd_list->ResourceBarrier(1, &addr4);
 
 			// Describe and create a SRV for the texture.
 			u32 inc_size = ctx->g_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-			D3D12_CPU_DESCRIPTOR_HANDLE view = create_srv_descriptor_view(ctx->g_device, texture_dsc.heap_idx, heap->addr, inc_size, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_SRV_DIMENSION_TEXTURE2D, r_n_v->addr);
+			D3D12_CPU_DESCRIPTOR_HANDLE view = create_srv_descriptor_view(ctx->g_device, texture_dsc->heap_idx, heap->addr, inc_size, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_SRV_DIMENSION_TEXTURE2D, r_n_v->addr);
 		}
 
-		finalize(list.tail, ctx, cmd_list, heap);
+		Finalize<TS>::finalize(list.tail, ctx, cmd_list, heap);
+	}
+};
+
+template<bool B, typename TS>
+struct Finalize<t_list_cons<B, buffer_vtex, TS>> {
+	static func finalize(t_list_cons<B, buffer_vtex, TS> list, dx_context *ctx, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
+
+		buffer_vtex *buffer_desc = ctx->mem_arena.get_ptr(list.el);
+		resource_and_view *r_n_v = &ctx->mem_arena.get_array(ctx->resources_and_views)[buffer_desc->res_and_view_idx];
+
+		auto addr4 = CD3DX12_RESOURCE_BARRIER::Transition(r_n_v->addr, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER/* | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE*/);
+		cmd_list->CopyBufferRegion(r_n_v->addr, 0, buffer_desc->stg_buff, 0, buffer_desc->size_of_data);
+		cmd_list->ResourceBarrier(1, &addr4);
+
+		// Initialize the vertex buffer view.
+		buffer_desc->view.BufferLocation	= r_n_v->addr->GetGPUVirtualAddress();
+		buffer_desc->view.StrideInBytes		= sizeof(vertex);
+		buffer_desc->view.SizeInBytes		= buffer_desc->size_of_data;
+
+		Finalize<TS>::finalize(list.tail, ctx, cmd_list, heap);
+	}
+};
+
+template<bool B, typename TS>
+struct Finalize<t_list_cons<B, buffer_idex, TS>> {
+	static func finalize(t_list_cons<B, buffer_idex, TS> list, dx_context *ctx, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
+
+		buffer_idex *buffer_desc = ctx->mem_arena.get_ptr(list.el);
+		resource_and_view *r_n_v = &ctx->mem_arena.get_array(ctx->resources_and_views)[buffer_desc->res_and_view_idx];
+
+		auto addr4 = CD3DX12_RESOURCE_BARRIER::Transition(r_n_v->addr, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDEX_BUFFER/* | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE*/);
+		cmd_list->CopyBufferRegion(r_n_v->addr, 0, buffer_desc->stg_buff, 0, buffer_desc->size_of_data);
+		cmd_list->ResourceBarrier(1, &addr4);
+
+		// Initialize the vertex buffer view.
+		buffer_desc->view.BufferLocation		= r_n_v->addr->GetGPUVirtualAddress();
+		buffer_desc->view.Format 			= DXGI_FORMAT_R32_UINT;
+		buffer_desc->view.SizeInBytes 		= buffer_desc->size_of_data;
+
+		Finalize<TS>::finalize(list.tail, ctx, cmd_list, heap);
 	}
 };
 
 template<bool B, typename T, typename TS>
 struct Finalize<t_list_cons<B, T, TS>> {
-	static func finalize(t_list_cons<B, texture_2d, TS> list, dx_context *ctx, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
-		finalize(list.tail, ctx, cmd_list, heap);
+	static func finalize(t_list_cons<B, T, TS> list, dx_context *ctx, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
+		Finalize<TS>::finalize(list.tail, ctx, cmd_list, heap);
+	}
+};
+
+template<>
+struct Finalize<t_list_nil> {
+	static func finalize(t_list_nil list, dx_context *ctx, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
+		return;
 	}
 };
 
@@ -1361,92 +1508,7 @@ inline func graphic_pipeline::finalize(binding<T> bindings, dx_context *ctx, ID3
 	auto cmd_list = create_command_list<ID3D12GraphicsCommandList>(device, ctx->g_command_allocators[ctx->g_frame_index], D3D12_COMMAND_LIST_TYPE_DIRECT, ctx->g_pipeline_state, false);
 	cmd_list->SetName(L"Uload to GPU list");
 
-	Finalize<binding<T>>::finalize(bindings, ctx, cmd_list, heap);
-
-	auto finalize_texture_2D = [device](u32 idx, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap, u32 width, u32 height, ID3D12Resource *texture_resource, DXGI_FORMAT format, texture_2d *texture_dsc){
-		// Create the texture
-		{
-			const UINT64 upload_buffer_size = GetRequiredIntermediateSize(texture_resource, 0, 1);
-
-			// NOTE(DH): Here we create heap properties with texture data to be copied to from staiging buffer
-			auto addr2 = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
-			auto addr3 = CD3DX12_RESOURCE_DESC::Buffer(upload_buffer_size);
-
-			// Create the GPU upload buffer.
-			ThrowIfFailed(device->CreateCommittedResource(
-				&addr2,
-				D3D12_HEAP_FLAG_NONE,
-				&addr3,
-				D3D12_RESOURCE_STATE_GENERIC_READ,
-				nullptr,
-				IID_PPV_ARGS(&texture_dsc->staging_buff)));
-
-			D3D12_SUBRESOURCE_DATA texture_subresource_data = {};
-			texture_subresource_data.pData = &texture_dsc->texture_data[0];
-			texture_subresource_data.RowPitch = width * 4; //4 bytes per pixel
-			texture_subresource_data.SlicePitch = texture_subresource_data.RowPitch * height; //256x256 Width x Height
-
-			// NOTE(DH): This is important, because we use this resource not only in PIXEL SHADER BUT PROBABLY IN VERTEX SHADER, WE NEED EXPLICITLY MARK THIS FLAGS AS IT IS!!!
-			auto addr4 = CD3DX12_RESOURCE_BARRIER::Transition(texture_resource, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE/* | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE*/);
-			UpdateSubresources(cmd_list, texture_resource, texture_dsc->staging_buff, 0, 0, 1, &texture_subresource_data);
-			cmd_list->ResourceBarrier(1, &addr4);
-
-			// Describe and create a SRV for the texture.
-			u32 inc_size = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-			D3D12_CPU_DESCRIPTOR_HANDLE view = create_srv_descriptor_view(device, idx, heap->addr, inc_size, format, D3D12_SRV_DIMENSION_TEXTURE2D, texture_resource);
-		}
-	};
-
-	auto finalize_vtex_buff = [device](u32 idx, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap, u32 count_x, u32 count_y, ID3D12Resource *buffer_resource, buffer_vtex *buffer_dsc){
-		auto addr4 = CD3DX12_RESOURCE_BARRIER::Transition(buffer_resource, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER/* | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE*/);
-		cmd_list->CopyBufferRegion(buffer_resource, 0, buffer_dsc->stg_buff, 0, buffer_dsc->size_of_data);
-		cmd_list->ResourceBarrier(1, &addr4);
-
-		// Initialize the vertex buffer view.
-		buffer_dsc->view.BufferLocation	= buffer_resource->GetGPUVirtualAddress();
-		buffer_dsc->view.StrideInBytes		= sizeof(vertex);
-		buffer_dsc->view.SizeInBytes		= buffer_dsc->size_of_data;
-	};
-
-	auto finalize_idex_buff = [device](u32 idx, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap, u32 count_x, u32 count_y, ID3D12Resource *buffer_resource, buffer_idex *buffer_dsc){
-		auto addr4 = CD3DX12_RESOURCE_BARRIER::Transition(buffer_resource, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDEX_BUFFER/* | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE*/);
-		cmd_list->CopyBufferRegion(buffer_resource, 0, buffer_dsc->stg_buff, 0, buffer_dsc->size_of_data);
-		cmd_list->ResourceBarrier(1, &addr4);
-
-		// Initialize the vertex buffer view.
-		buffer_dsc->view.BufferLocation		= buffer_resource->GetGPUVirtualAddress();
-		buffer_dsc->view.Format 			= DXGI_FORMAT_R32_UINT;
-		buffer_dsc->view.SizeInBytes 		= buffer_dsc->size_of_data;
-	};
-
-	for(u32 i = 0 ; i < this->textures.count; ++i) {
-		switch(textures[i].type) {
-			case res_texture::texture2d: {
-				resource_and_view *r_n_v = &ctx->mem_arena.get_array(ctx->resources_and_views)[textures[i].info.texture2d.res_and_view_idx];
-				u32 width = GET_WIDTH(textures[i].info.texture2d.width_and_height);
-				u32 height = GET_HEIGHT(textures[i].info.texture2d.width_and_height);
-				finalize_texture_2D(textures[i].info.texture2d.heap_idx, cmd_list, heap, width, height, r_n_v->addr, DXGI_FORMAT_R8G8B8A8_UNORM, &textures[i]);
-			}; break;
-
-			default: { printf("Unlucky, its not done yet!");} break;
-		}
-	}
-
-	for(u32 i = 0 ; i < this->buffers.count; ++i) {
-		switch(buffers[i].type) {
-			case res_buffer::vertex_buffer: {
-				resource_and_view *r_n_v = &ctx->mem_arena.get_array(ctx->resources_and_views)[buffers[i].info.vtex_buffer.res_and_view_idx];
-				finalize_vtex_buff(buffers[i].info.vtex_buffer.heap_idx, cmd_list, heap, buffers[i].info.vtex_buffer.size_of_data / sizeof(vertex), 1, r_n_v->addr, &buffers[i]);
-			}; break;
-
-			case res_buffer::index_buffer: {
-				resource_and_view *r_n_v = &ctx->mem_arena.get_array(ctx->resources_and_views)[buffers[i].info.idex_buffer.res_and_view_idx];
-				finalize_idex_buff(buffers[i].info.idex_buffer.heap_idx, cmd_list, heap, buffers[i].info.idex_buffer.size_of_data / sizeof(u32), 1, r_n_v->addr, &buffers[i]);
-			}; break;
-
-			default: { printf("Unlucky, its not done yet!");} break;
-		}
-	}
+	Finalize<T>::finalize(bindings.data, ctx, cmd_list, heap);
 
 	// Close the command list and execute it to begin the initial GPU setup.
     ThrowIfFailed(cmd_list->Close());
@@ -1474,55 +1536,16 @@ inline func graphic_pipeline::finalize(binding<T> bindings, dx_context *ctx, ID3
 	return *this;
 }
 
+template<typename T>
+inline func compute_pipeline::create_root_sig (binding<T> bindings, ID3D12Device2 *device, memory_arena *arena) -> compute_pipeline {
 
-inline func compute_pipeline::create_root_sig (ID3D12Device2 *device, memory_arena *arena) -> compute_pipeline {
+	this->number_of_resources = bindings.data.get_size();
+	
 	CD3DX12_DESCRIPTOR_RANGE1 ranges[this->number_of_resources];
-	auto buffers 	= arena->get_array(this->buffers);
-	auto textures 	= arena->get_array(this->textures);
-	auto rtv_s 		= arena->get_array(this->rtv_s);
 
-	u32 current_resource = 0;
-	for(u32 i = 0; i < this->buffers.count; ++i) {
-		switch(buffers[i].type) {
-			case res_buffer::TYPE::constant_buffer: {
-				ranges[current_resource++].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, buffers[i].info.cbuffer.register_index, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
-			}; break;
-
-			case res_buffer::TYPE::buffer2d: {
-				ranges[current_resource++].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, buffers[i].info.buffer2d.register_index, 0 ,D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
-			}; break;
-
-			case res_buffer::TYPE::buffer1d: {
-				ranges[current_resource++].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, buffers[i].info.buffer1d.register_index, 0 ,D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
-			}; break;
-
-			default: { printf("!Not suposed to bind that here"); assert(0); }; break;
-		}
-	}
-
-	for(u32 i = 0; i < this->textures.count; ++i) {
-		switch(textures[i].type) {
-			case res_texture::TYPE::texture2d: {
-				ranges[current_resource++].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, textures[i].info.texture2d.register_index, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
-			}; break;
-
-			case res_texture::TYPE::texture1d: {
-				ranges[current_resource++].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, textures[i].info.texture1d.register_index, 0 ,D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
-			}; break;
-		}
-	}
-
-	for(u32 i = 0; i < this->rtv_s.count; ++i) {
-		switch(rtv_s[i].type) {
-			case res_render_target::TYPE::render_target2d: {
-				ranges[current_resource++].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, rtv_s[i].info.render_target2d.register_index, 0, D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
-			}; break;
-
-			case res_render_target::TYPE::render_target1d: {
-				ranges[current_resource++].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, rtv_s[i].info.render_target1d.register_index, 0 ,D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
-			}; break;
-		}
-	}
+	bool is_texture[bindings.data.get_size()];
+	
+	CRS<T>::create_root_sig(bindings.data, 0, is_texture, ranges, arena);
 		
 	CD3DX12_ROOT_PARAMETER1 root_parameters[this->number_of_resources];
 	for(u32 i = 0; i < this->number_of_resources; ++i) {
@@ -1540,44 +1563,13 @@ inline func compute_pipeline::create_root_sig (ID3D12Device2 *device, memory_are
 	return *this;
 }
 
-inline func compute_pipeline::bind_texture (res_texture texture, memory_arena arena) -> compute_pipeline {
-	res_texture *array = arena.get_array(this->textures);
-	assert(this->textures.count <= this->textures.capacity);
-	array[this->textures.count++] = texture;
-	++this->number_of_resources;
-	return *this;
-}
-
-inline func compute_pipeline::bind_rndr_target (res_render_target rt, memory_arena arena) -> compute_pipeline {
-	res_render_target *array = arena.get_array(this->rtv_s);
-	assert(this->rtv_s.count <= this->rtv_s.capacity);
-	array[this->rtv_s.count++] = rt;
-	++this->number_of_resources;
-	return *this;
-}
-
-inline func compute_pipeline::bind_buffer (res_buffer buffer, memory_arena arena) -> compute_pipeline {
-	res_buffer *array = arena.get_array(this->buffers);
-	assert(this->buffers.count <= this->buffers.capacity);
-	array[this->buffers.count++] = buffer;
-	++this->number_of_resources;
-	return *this;
-}
-
-inline func compute_pipeline::bind_sampler (res_sampler sampler, memory_arena arena) -> compute_pipeline {
-	res_sampler *array = arena.get_array(this->samplers);
-	assert(this->samplers.count <= this->samplers.capacity);
-	array[this->samplers.count++] = sampler;
-	++this->number_of_resources;
-	return *this;
-}
-
 inline func compute_pipeline::bind_shader (ID3DBlob* shader) -> compute_pipeline {
 	this->shader_blob = shader;
 	return *this;
 }
 
-inline func compute_pipeline::finalize (dx_context *ctx, ID3D12Device2* device, descriptor_heap *heap) -> compute_pipeline {
+template<typename T>
+inline func compute_pipeline::finalize (binding<T> bindings, dx_context *ctx, ID3D12Device2* device, descriptor_heap *heap) -> compute_pipeline {
 	// Describe and create the graphics pipeline state object (PSO).
 	D3D12_BLEND_DESC blendDesc = {};
 	blendDesc.RenderTarget[0].BlendEnable = TRUE;
@@ -1600,54 +1592,7 @@ inline func compute_pipeline::finalize (dx_context *ctx, ID3D12Device2* device, 
 	auto cmd_list = create_command_list<ID3D12GraphicsCommandList>(device, ctx->g_command_allocators[ctx->g_frame_index], D3D12_COMMAND_LIST_TYPE_DIRECT, ctx->g_pipeline_state, false);
 	cmd_list->SetName(L"Uload to GPU list");
 
-	auto finalize_texture_2D = [device](u32 idx, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap, u32 width, u32 height, ID3D12Resource *texture_resource, DXGI_FORMAT format, res_texture *texture_dsc){
-		// Create the texture
-		{
-			const UINT64 upload_buffer_size = GetRequiredIntermediateSize(texture_resource, 0, 1);
-
-			// NOTE(DH): Here we create heap properties with texture data to be copied to from staiging buffer
-			auto addr2 = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
-			auto addr3 = CD3DX12_RESOURCE_DESC::Buffer(upload_buffer_size);
-
-			// Create the GPU upload buffer.
-			ThrowIfFailed(device->CreateCommittedResource(
-				&addr2,
-				D3D12_HEAP_FLAG_NONE,
-				&addr3,
-				D3D12_RESOURCE_STATE_GENERIC_READ,
-				nullptr,
-				IID_PPV_ARGS(&texture_dsc->info.texture2d.staging_buff)));
-
-			D3D12_SUBRESOURCE_DATA texture_subresource_data = {};
-			texture_subresource_data.pData = &texture_dsc->info.texture2d.texture_data[0];
-			texture_subresource_data.RowPitch = width * 4; //4 bytes per pixel
-			texture_subresource_data.SlicePitch = texture_subresource_data.RowPitch * height; //256x256 Width x Height
-
-			// NOTE(DH): This is important, because we use this resource not only in PIXEL SHADER BUT PROBABLY IN VERTEX SHADER, WE NEED EXPLICITLY MARK THIS FLAGS AS IT IS!!!
-			auto addr4 = CD3DX12_RESOURCE_BARRIER::Transition(texture_resource, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE/* | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE*/);
-			UpdateSubresources(cmd_list, texture_resource, texture_dsc->info.texture2d.staging_buff, 0, 0, 1, &texture_subresource_data);
-			cmd_list->ResourceBarrier(1, &addr4);
-
-			// Describe and create a SRV for the texture.
-			u32 inc_size = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-			D3D12_CPU_DESCRIPTOR_HANDLE view = create_srv_descriptor_view(device, idx, heap->addr, inc_size, format, D3D12_SRV_DIMENSION_TEXTURE2D, texture_resource);
-		}
-	};
-
-	res_texture *textures = ctx->mem_arena.get_array(this->textures);
-
-	for(u32 i = 0 ; i < this->textures.count; ++i) {
-		switch(textures[i].type) {
-			case res_texture::texture2d: {
-				resource_and_view *r_n_v = &ctx->mem_arena.get_array(ctx->resources_and_views)[textures[i].info.texture2d.res_and_view_idx];
-				u32 width = GET_WIDTH(textures[i].info.texture2d.width_and_height);
-				u32 height = GET_HEIGHT(textures[i].info.texture2d.width_and_height);
-				finalize_texture_2D(textures[i].info.texture2d.heap_idx, cmd_list, heap, width, height, r_n_v->addr, DXGI_FORMAT_R8G8B8A8_UNORM, &textures[i]);
-			}; break;
-
-			default: { printf("Unlucky, its not done yet!");} break;
-		}
-	}
+	Finalize<T>::finalize(bindings.data, ctx, cmd_list, heap);
 
 	// Close the command list and execute it to begin the initial GPU setup.
     ThrowIfFailed(cmd_list->Close());
@@ -1677,16 +1622,15 @@ inline func compute_pipeline::finalize (dx_context *ctx, ID3D12Device2* device, 
 
 
 inline func texture_2d::create(ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u32 width ,u32 height, u8* texture_data, u32 register_index) -> texture_2d {
-	res_texture result = {};
-	result.type = res_texture::texture2d;
-	result.format = res_texture::texture_u8rgba_norm;
-	result.info.texture2d.texture_data = texture_data;
-	result.info.texture2d.register_index = register_index;
-	result.info.texture2d.width_and_height = SET_WIDTH_HEIGHT(width, height);
-	result.info.texture2d.heap_idx = heap->next_resource_idx++;
-	result.info.texture2d.res_and_view_idx = r_n_v->count++;
+	texture_2d result = {};
+	result.fmt = texture_u8rgba_norm;
+	result.texture_data = texture_data;
+	result.register_index = register_index;
+	result.width_and_height = SET_WIDTH_HEIGHT(width, height);
+	result.heap_idx = heap->next_resource_idx++;
+	result.res_and_view_idx = r_n_v->count++;
 
-	resource_and_view *resource_and_view = arena.load_ptr_by_idx(r_n_v->ptr, result.info.texture2d.res_and_view_idx);
+	resource_and_view *resource_and_view = arena.load_ptr_by_idx(r_n_v->ptr, result.res_and_view_idx);
 
 	// Describe and create a Texture2D.
 	auto heap_type 			= D3D12_HEAP_TYPE_DEFAULT;
@@ -1703,16 +1647,16 @@ inline func texture_2d::create(ID3D12Device2* device, memory_arena arena, descri
 	return result;
 }
 
-inline func res_texture::create_texture_1d(ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u32 width, u8* texture_data, u32 register_index) -> res_texture {
-	res_texture result = {};
-	result.type = res_texture::texture1d;
-	result.info.texture1d.texture_data = texture_data;
-	result.info.texture1d.register_index = register_index;
-	result.info.texture1d.width = width;
-	result.info.texture1d.heap_idx = heap->next_resource_idx++;
-	result.info.texture1d.res_and_view_idx = r_n_v->count++;
+inline func texture_1d::create (ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u32 width, u8* texture_data, u32 register_index) -> texture_1d {
+	texture_1d result = {};
 
-	resource_and_view *resource_and_view = arena.load_ptr_by_idx(r_n_v->ptr, result.info.texture2d.res_and_view_idx);
+	result.texture_data = texture_data;
+	result.register_index = register_index;
+	result.width = width;
+	result.heap_idx = heap->next_resource_idx++;
+	result.res_and_view_idx = r_n_v->count++;
+
+	resource_and_view *resource_and_view = arena.load_ptr_by_idx(r_n_v->ptr, result.res_and_view_idx);
 
 	// Describe and create a Texture1D.
 	auto heap_type 			= D3D12_HEAP_TYPE_DEFAULT;
@@ -1729,21 +1673,13 @@ inline func res_texture::create_texture_1d(ID3D12Device2* device, memory_arena a
 	return result;
 }
 
-inline func res_texture::recreate_texture_2d(ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 width, u32 height,	u8* texture_data) -> res_texture {
+inline func render_target2d::create (ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 width, u32 height, u32 register_idx) ->render_target2d {
+	render_target2d result = {};
 
-}
-
-inline func res_texture::recreate_texture_1d(ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 width, u8* texture_data) -> res_texture {
-
-}
-
-inline func render_target2d::create (ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 width, u32 height, u32 register_idx) ->res_render_target {
-	res_render_target result = {};
-	result.type = res_render_target::render_target2d;
-	result.info.render_target2d.register_index = register_idx;
-	result.info.render_target2d.width = width;
-	result.info.render_target2d.height = height;
-	result.info.render_target2d.heap_idx = heap->next_resource_idx++;
+	result.register_index = register_idx;
+	result.width = width;
+	result.height = height;
+	result.heap_idx = heap->next_resource_idx++;
 
 	D3D12_TEXTURE_LAYOUT texture_layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 	D3D12_RESOURCE_FLAGS resource_flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
@@ -1754,22 +1690,22 @@ inline func render_target2d::create (ID3D12Device2* device, memory_arena arena, 
 	D3D12_HEAP_FLAGS heap_flags = D3D12_HEAP_FLAG_NONE;
 	DXGI_FORMAT allocation_format = DXGI_FORMAT_R8G8B8A8_UNORM;
 
-	result.info.render_target2d.res_and_view_idx = r_n_v->count;
+	result.res_and_view_idx = r_n_v->count;
 
 	resource_and_view* res_n_view = arena.load_ptr_by_idx(r_n_v->ptr, r_n_v->count++);
 
-	res_n_view->addr = allocate_data_on_gpu(device, heap_type, heap_flags, texture_layout, resource_flags, resource_states, resource_dimension, result.info.render_target2d.width, result.info.render_target2d.height, allocation_format);
-	res_n_view->view = create_uav_descriptor_view(device, result.info.render_target2d.heap_idx, heap->addr, heap->descriptor_size, allocation_format, uav_dimension, res_n_view->addr);
+	res_n_view->addr = allocate_data_on_gpu(device, heap_type, heap_flags, texture_layout, resource_flags, resource_states, resource_dimension, result.width, result.height, allocation_format);
+	res_n_view->view = create_uav_descriptor_view(device, result.heap_idx, heap->addr, heap->descriptor_size, allocation_format, uav_dimension, res_n_view->addr);
 	res_n_view->addr->SetName(L"RENDER_TARGET2D");
 	return result;
 }
 
-inline func render_target1d::create (ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 width, u32 register_idx) ->res_render_target {
-	res_render_target result = {};
-	result.type = res_render_target::render_target1d;
-	result.info.render_target1d.register_index = register_idx;
-	result.info.render_target1d.width = width;
-	result.info.render_target1d.heap_idx = heap->next_resource_idx++;
+inline func render_target1d::create (ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 width, u32 register_idx) ->render_target1d {
+	render_target1d result = {};
+
+	result.register_index = register_idx;
+	result.width = width;
+	result.heap_idx = heap->next_resource_idx++;
 
 	D3D12_TEXTURE_LAYOUT 		texture_layout 			= D3D12_TEXTURE_LAYOUT_UNKNOWN;
 	D3D12_RESOURCE_FLAGS 		resource_flags 			= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
@@ -1780,19 +1716,19 @@ inline func render_target1d::create (ID3D12Device2* device, memory_arena arena, 
 	D3D12_HEAP_FLAGS 			heap_flags 				= D3D12_HEAP_FLAG_NONE;
 	DXGI_FORMAT 				allocation_format 		= DXGI_FORMAT_R8G8B8A8_UNORM;
 
-	result.info.render_target1d.res_and_view_idx = r_n_v->count;
+	result.res_and_view_idx = r_n_v->count;
 
 	resource_and_view* res_n_view = arena.load_ptr_by_idx(r_n_v->ptr, r_n_v->count++);
 
-	res_n_view->addr = allocate_data_on_gpu(device, heap_type, heap_flags, texture_layout, resource_flags, resource_states, resource_dimension, sizeof(u32) * result.info.render_target1d.width, 1, allocation_format);
-	res_n_view->view = create_uav_descriptor_view(device, result.info.render_target1d.heap_idx, heap->addr, heap->descriptor_size, allocation_format, uav_dimension, res_n_view->addr);
+	res_n_view->addr = allocate_data_on_gpu(device, heap_type, heap_flags, texture_layout, resource_flags, resource_states, resource_dimension, sizeof(u32) * result.width, 1, allocation_format);
+	res_n_view->view = create_uav_descriptor_view(device, result.heap_idx, heap->addr, heap->descriptor_size, allocation_format, uav_dimension, res_n_view->addr);
 	res_n_view->addr->SetName(L"RENDER_TARGET1D");
 	return result;
 }
 
-inline func render_target2d::recreate (ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 width, u32 height) -> res_render_target {
-	this->info.render_target2d.width = width;
-	this->info.render_target2d.height = height;
+inline func render_target2d::recreate (ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 width, u32 height) -> render_target2d {
+	this->width = width;
+	this->height = height;
 
 	D3D12_TEXTURE_LAYOUT texture_layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 	D3D12_RESOURCE_FLAGS resource_flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
@@ -1803,16 +1739,16 @@ inline func render_target2d::recreate (ID3D12Device2* device, memory_arena arena
 	D3D12_HEAP_FLAGS heap_flags = D3D12_HEAP_FLAG_NONE;
 	DXGI_FORMAT allocation_format = DXGI_FORMAT_R8G8B8A8_UNORM;
 
-	resource_and_view* res_n_view = arena.load_ptr_by_idx(r_n_v->ptr, this->info.render_target2d.res_and_view_idx);
+	resource_and_view* res_n_view = arena.load_ptr_by_idx(r_n_v->ptr, this->res_and_view_idx);
 
-	res_n_view->addr = allocate_data_on_gpu(device, heap_type, heap_flags, texture_layout, resource_flags, resource_states, resource_dimension, this->info.render_target2d.width, this->info.render_target2d.height, allocation_format);
-	res_n_view->view = create_uav_descriptor_view(device, this->info.render_target2d.heap_idx, heap->addr, heap->descriptor_size, allocation_format, uav_dimension, res_n_view->addr);
+	res_n_view->addr = allocate_data_on_gpu(device, heap_type, heap_flags, texture_layout, resource_flags, resource_states, resource_dimension, this->width, this->height, allocation_format);
+	res_n_view->view = create_uav_descriptor_view(device, this->heap_idx, heap->addr, heap->descriptor_size, allocation_format, uav_dimension, res_n_view->addr);
 	res_n_view->addr->SetName(L"RENDER_TARGET2D");
 	return *this;
 }
 
-inline func render_target1d::recreate (ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 width) -> res_render_target {
-	this->info.render_target1d.width = width;
+inline func render_target1d::recreate (ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 width) -> render_target1d {
+	this->width = width;
 
 	D3D12_TEXTURE_LAYOUT texture_layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 	D3D12_RESOURCE_FLAGS resource_flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
@@ -1823,24 +1759,23 @@ inline func render_target1d::recreate (ID3D12Device2* device, memory_arena arena
 	D3D12_HEAP_FLAGS heap_flags = D3D12_HEAP_FLAG_NONE;
 	DXGI_FORMAT allocation_format = DXGI_FORMAT_R8G8B8A8_UNORM;
 
-	resource_and_view* res_n_view = arena.load_ptr_by_idx(r_n_v->ptr, this->info.render_target1d.res_and_view_idx);
+	resource_and_view* res_n_view = arena.load_ptr_by_idx(r_n_v->ptr, this->res_and_view_idx);
 
-	res_n_view->addr = allocate_data_on_gpu(device, heap_type, heap_flags, texture_layout, resource_flags, resource_states, resource_dimension, sizeof(u32) * this->info.render_target1d.width, 1, allocation_format);
-	res_n_view->view = create_uav_descriptor_view(device, this->info.render_target1d.heap_idx, heap->addr, heap->descriptor_size, allocation_format, uav_dimension, res_n_view->addr);
+	res_n_view->addr = allocate_data_on_gpu(device, heap_type, heap_flags, texture_layout, resource_flags, resource_states, resource_dimension, sizeof(u32) * this->width, 1, allocation_format);
+	res_n_view->view = create_uav_descriptor_view(device, this->heap_idx, heap->addr, heap->descriptor_size, allocation_format, uav_dimension, res_n_view->addr);
 	res_n_view->addr->SetName(L"RENDER_TARGET1D");
 	return *this;
 }
 
 inline func buffer_cbuf::create (ID3D12Device2 *device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 register_index) -> buffer_cbuf {
 	buffer_cbuf result = {};
-	result.type = buf;
 
 	u32 size_of_cbuffer = sizeof(c_buffer); // NOTE(DH): IMPORTANT, this is always will be 256 bytes!
-	result.info.cbuffer.register_index = register_index;
-	result.info.cbuffer.res_and_view_idx = r_n_v->count++;
-	result.info.cbuffer.heap_idx = heap->next_resource_idx++;
+	result.register_index = register_index;
+	result.res_and_view_idx = r_n_v->count++;
+	result.heap_idx = heap->next_resource_idx++;
 
-	resource_and_view* res_n_view = arena.load_ptr_by_idx(r_n_v->ptr, result.info.cbuffer.res_and_view_idx);
+	resource_and_view* res_n_view = arena.load_ptr_by_idx(r_n_v->ptr, result.res_and_view_idx);
 	
 	DXGI_FORMAT 				format 		= DXGI_FORMAT_UNKNOWN;
 	D3D12_HEAP_TYPE 			heap_type 	= D3D12_HEAP_TYPE_UPLOAD;
@@ -1851,7 +1786,7 @@ inline func buffer_cbuf::create (ID3D12Device2 *device, memory_arena arena, desc
 	D3D12_RESOURCE_DIMENSION 	dim 		= D3D12_RESOURCE_DIMENSION_BUFFER;
 
 	res_n_view->addr = allocate_data_on_gpu(device, heap_type, heap_flags, layout, flags, states, dim, size_of_cbuffer, 1, format);
-	res_n_view->view = get_cpu_handle_at(result.info.cbuffer.heap_idx, heap->addr, heap->descriptor_size);
+	res_n_view->view = get_cpu_handle_at(result.heap_idx, heap->addr, heap->descriptor_size);
 	res_n_view->addr->SetName(L"C_BUFFER");
 	// NOTE(DH): IMPORTANT, Always needs to be 256 bytes!
 	D3D12_CONSTANT_BUFFER_VIEW_DESC cbv_desc = {.BufferLocation = res_n_view->addr->GetGPUVirtualAddress(), .SizeInBytes = size_of_cbuffer};
@@ -1859,19 +1794,19 @@ inline func buffer_cbuf::create (ID3D12Device2 *device, memory_arena arena, desc
 	// Map and initialize the constant buffer. We don't unmap this until the
 	// app closes. Keeping things mapped for the lifetime of the resource is okay.
 	CD3DX12_RANGE read_range(0, 0); // We do not intend to read from this resource on the CPU.
-	ThrowIfFailed(res_n_view->addr->Map(0, &read_range, (void**)(&result.info.cbuffer.mapped_view)));
+	ThrowIfFailed(res_n_view->addr->Map(0, &read_range, (void**)(&result.mapped_view)));
 	
 	return result;
 }
 
-inline func buffer_2d::create (bool need_to_upload, ID3D12Device2 *device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 count_x, u32 count_y, u32 register_index) -> res_buffer {
+inline func buffer_2d::create (ID3D12Device2 *device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 count_x, u32 count_y, u32 register_index) -> buffer_2d {
 	buffer_2d result = {};
-	result.type = buf_format::;
-	result.info.buffer2d.res_and_view_idx = r_n_v->count;
-	result.info.buffer2d.register_index = register_index;
-	result.info.buffer2d.count_x = count_x;
-	result.info.buffer2d.count_y = count_y;
-	result.info.buffer2d.heap_idx = heap->next_resource_idx++;
+
+	result.res_and_view_idx = r_n_v->count;
+	result.register_index = register_index;
+	result.count_x = count_x;
+	result.count_y = count_y;
+	result.heap_idx = heap->next_resource_idx++;
 
 	resource_and_view* res_n_view = arena.load_ptr_by_idx(r_n_v->ptr, r_n_v->count++);
 	
@@ -1884,20 +1819,20 @@ inline func buffer_2d::create (bool need_to_upload, ID3D12Device2 *device, memor
 	D3D12_HEAP_FLAGS heap_flags = D3D12_HEAP_FLAG_ALLOW_SHADER_ATOMICS;
 	DXGI_FORMAT allocation_format = DXGI_FORMAT_UNKNOWN;
 	
-	res_n_view->addr = allocate_data_on_gpu(device, heap_type, heap_flags, texture_layout, resource_flags, resource_states, resource_dimension, sizeof(u32) * result.info.buffer2d.count_x * result.info.buffer2d.count_y, 1, allocation_format);
-	res_n_view->view = create_uav_u32_buffer_descriptor_view(device, result.info.buffer2d.heap_idx, heap->addr, heap->descriptor_size, result.info.buffer2d.count_x * result.info.buffer2d.count_y, allocation_format, uav_dimension, res_n_view->addr);
+	res_n_view->addr = allocate_data_on_gpu(device, heap_type, heap_flags, texture_layout, resource_flags, resource_states, resource_dimension, sizeof(u32) * result.count_x * result.count_y, 1, allocation_format);
+	res_n_view->view = create_uav_u32_buffer_descriptor_view(device, result.heap_idx, heap->addr, heap->descriptor_size, result.count_x * result.count_y, allocation_format, uav_dimension, res_n_view->addr);
 	res_n_view->addr->SetName(L"BUFFER2D");
 
 	return result;
 }
 
-inline func buffer_1d::create (bool need_to_upload, ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u32 count, u32 register_index) -> res_buffer {
-	res_buffer result = {};
-	result.type = res_buffer::buffer1d;
-	result.info.buffer1d.res_and_view_idx = r_n_v->count;
-	result.info.buffer1d.register_index = register_index;
-	result.info.buffer1d.count = count;
-	result.info.buffer1d.heap_idx = heap->next_resource_idx++;
+inline func buffer_1d::create (ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u32 count, u32 register_index) -> buffer_1d {
+	buffer_1d result = {};
+
+	result.res_and_view_idx = r_n_v->count;
+	result.register_index = register_index;
+	result.count = count;
+	result.heap_idx = heap->next_resource_idx++;
 
 	resource_and_view* res_n_view = arena.load_ptr_by_idx(r_n_v->ptr, r_n_v->count++);
 	
@@ -1910,35 +1845,35 @@ inline func buffer_1d::create (bool need_to_upload, ID3D12Device2* device, memor
 	D3D12_HEAP_FLAGS heap_flags = D3D12_HEAP_FLAG_ALLOW_SHADER_ATOMICS;
 	DXGI_FORMAT allocation_format = DXGI_FORMAT_UNKNOWN;
 	
-	res_n_view->addr = allocate_data_on_gpu(device, heap_type, heap_flags, texture_layout, resource_flags, resource_states, resource_dimension, sizeof(u32) * result.info.buffer1d.count, 1, allocation_format);
-	res_n_view->view = create_uav_u32_buffer_descriptor_view(device, result.info.buffer1d.heap_idx, heap->addr, heap->descriptor_size, result.info.buffer1d.count, allocation_format, uav_dimension, res_n_view->addr);
+	res_n_view->addr = allocate_data_on_gpu(device, heap_type, heap_flags, texture_layout, resource_flags, resource_states, resource_dimension, sizeof(u32) * result.count, 1, allocation_format);
+	res_n_view->view = create_uav_u32_buffer_descriptor_view(device, result.heap_idx, heap->addr, heap->descriptor_size, result.count, allocation_format, uav_dimension, res_n_view->addr);
 	res_n_view->addr->SetName(L"BUFFER1D");
 
 	return result;
 }
 
-inline func buffer_vtex::create (bool need_to_upload, ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u8* data, u32 size_of_data, u32 register_index) -> res_buffer {
-	res_buffer result = {};
-	result.type = res_buffer::vertex_buffer;
-	result.info.vtex_buffer.register_index = register_index;
-	result.info.vtex_buffer.heap_idx = heap->next_resource_idx++;
-	result.info.vtex_buffer.size_of_data = size_of_data;
-	result.info.vtex_buffer.data = data;
-	result.info.vtex_buffer.res_and_view_idx = r_n_v->count;
+inline func buffer_vtex::create (ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u8* data, u32 size_of_data, u32 register_index) -> buffer_vtex {
+	buffer_vtex result = {};
+
+	result.register_index = register_index;
+	result.heap_idx = heap->next_resource_idx++;
+	result.size_of_data = size_of_data;
+	result.data = data;
+	result.res_and_view_idx = r_n_v->count;
 
 	resource_and_view* res_n_view = arena.load_ptr_by_idx(r_n_v->ptr, r_n_v->count++);
 
 	{
 		auto heap_properties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
 		auto resource_desc = CD3DX12_RESOURCE_DESC::Buffer(size_of_data);
-		ThrowIfFailed(device->CreateCommittedResource(&heap_properties,D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&result.info.vtex_buffer.stg_buff)));
+		ThrowIfFailed(device->CreateCommittedResource(&heap_properties,D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&result.stg_buff)));
 		
 		// Copy the triangle data to the vertex buffer.
 		u8* pVertexDataBegin;
 		CD3DX12_RANGE readRange(0, 0);        // We do not intend to read from this resource on the CPU.
-		ThrowIfFailed(result.info.vtex_buffer.stg_buff->Map(0, &readRange, reinterpret_cast<void**>(&pVertexDataBegin)));
+		ThrowIfFailed(result.stg_buff->Map(0, &readRange, reinterpret_cast<void**>(&pVertexDataBegin)));
 		memcpy(pVertexDataBegin, data, size_of_data);
-		result.info.vtex_buffer.stg_buff->Unmap(0, nullptr);
+		result.stg_buff->Unmap(0, nullptr);
 	}
 
 	D3D12_TEXTURE_LAYOUT texture_layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
@@ -1950,39 +1885,39 @@ inline func buffer_vtex::create (bool need_to_upload, ID3D12Device2* device, mem
 	D3D12_HEAP_FLAGS heap_flags = D3D12_HEAP_FLAG_NONE;
 	DXGI_FORMAT allocation_format = DXGI_FORMAT_UNKNOWN;
 
-	res_n_view->addr = allocate_data_on_gpu(device, heap_type, heap_flags, texture_layout, resource_flags, resource_states, resource_dimension, result.info.vtex_buffer.size_of_data, 1, allocation_format);
+	res_n_view->addr = allocate_data_on_gpu(device, heap_type, heap_flags, texture_layout, resource_flags, resource_states, resource_dimension, result.size_of_data, 1, allocation_format);
 	res_n_view->addr->SetName(L"VTEX_BUFFER1D");
 
 	return result;
 }
 
-inline func buffer_idex::create	(bool need_to_upload, ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u8* data, u32 size_of_data, u32 register_index) -> res_buffer {
-	res_buffer result = {};
-	result.type = res_buffer::index_buffer;
-	result.info.idex_buffer.register_index = register_index;
-	result.info.idex_buffer.heap_idx = heap->next_resource_idx++;
-	result.info.idex_buffer.size_of_data = size_of_data;
-	result.info.idex_buffer.data = data;
-	result.info.idex_buffer.res_and_view_idx = r_n_v->count;
+inline func buffer_idex::create	(ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u8* data, u32 size_of_data, u32 register_index) -> buffer_idex {
+	buffer_idex result = {};
+
+	result.register_index = register_index;
+	result.heap_idx = heap->next_resource_idx++;
+	result.size_of_data = size_of_data;
+	result.data = data;
+	result.res_and_view_idx = r_n_v->count;
 
 	resource_and_view* res_n_view = arena.load_ptr_by_idx(r_n_v->ptr, r_n_v->count++);
 
 	{
 		auto heap_properties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
 		auto resource_desc = CD3DX12_RESOURCE_DESC::Buffer(size_of_data);
-		ThrowIfFailed(device->CreateCommittedResource(&heap_properties,D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&result.info.idex_buffer.stg_buff)));
+		ThrowIfFailed(device->CreateCommittedResource(&heap_properties,D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&result.stg_buff)));
 		
 		// Copy the index data to the index buffer.
 		u8* p_idx_data_begin;
 		CD3DX12_RANGE readRange(0, 0);        // We do not intend to read from this resource on the CPU.
-		ThrowIfFailed(result.info.idex_buffer.stg_buff->Map(0, &readRange, reinterpret_cast<void**>(&p_idx_data_begin)));
+		ThrowIfFailed(result.stg_buff->Map(0, &readRange, reinterpret_cast<void**>(&p_idx_data_begin)));
 		memcpy(p_idx_data_begin, data, size_of_data);
-		result.info.idex_buffer.stg_buff->Unmap(0, nullptr);
+		result.stg_buff->Unmap(0, nullptr);
 
 		// Initialize the index buffer view.
-		result.info.idex_buffer.view.BufferLocation = result.info.idex_buffer.stg_buff->GetGPUVirtualAddress();
-		result.info.idex_buffer.view.Format = DXGI_FORMAT_R32_UINT;
-		result.info.idex_buffer.view.SizeInBytes = size_of_data;
+		result.view.BufferLocation = result.stg_buff->GetGPUVirtualAddress();
+		result.view.Format = DXGI_FORMAT_R32_UINT;
+		result.view.SizeInBytes = size_of_data;
 	}
 
 	D3D12_TEXTURE_LAYOUT texture_layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
@@ -1994,15 +1929,15 @@ inline func buffer_idex::create	(bool need_to_upload, ID3D12Device2* device, mem
 	D3D12_HEAP_FLAGS heap_flags = D3D12_HEAP_FLAG_NONE;
 	DXGI_FORMAT allocation_format = DXGI_FORMAT_UNKNOWN;
 
-	res_n_view->addr = allocate_data_on_gpu(device, heap_type, heap_flags, texture_layout, resource_flags, resource_states, resource_dimension, result.info.idex_buffer.size_of_data, 1, allocation_format);
+	res_n_view->addr = allocate_data_on_gpu(device, heap_type, heap_flags, texture_layout, resource_flags, resource_states, resource_dimension, result.size_of_data, 1, allocation_format);
 	res_n_view->addr->SetName(L"IDEX_BUFFER1D");
 
 	return result;
 }
 
 inline func buffer_2d::recreate	(ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u32 count_x, u32 count_y) -> buffer_2d {
-	this->info.buffer2d.count_x = count_x;
-	this->info.buffer2d.count_y = count_y;
+	this->count_x = count_x;
+	this->count_y = count_y;
 
 	resource_and_view* res_n_view = arena.load_ptr_by_idx(r_n_v->ptr, r_n_v->count++);
 	
@@ -2015,17 +1950,17 @@ inline func buffer_2d::recreate	(ID3D12Device2* device, memory_arena arena, desc
 	D3D12_HEAP_FLAGS heap_flags = D3D12_HEAP_FLAG_ALLOW_SHADER_ATOMICS;
 	DXGI_FORMAT allocation_format = DXGI_FORMAT_UNKNOWN;
 
-	res_n_view->addr = allocate_data_on_gpu(device, heap_type, heap_flags, texture_layout, resource_flags, resource_states, resource_dimension, sizeof(u32) * this->info.buffer2d.count_x * this->info.buffer2d.count_y, 1, allocation_format);
-	res_n_view->view = create_uav_u32_buffer_descriptor_view(device, this->info.buffer2d.heap_idx, heap->addr, heap->descriptor_size, this->info.buffer2d.count_x * this->info.buffer2d.count_y, allocation_format, uav_dimension, res_n_view->addr);
+	res_n_view->addr = allocate_data_on_gpu(device, heap_type, heap_flags, texture_layout, resource_flags, resource_states, resource_dimension, sizeof(u32) * this->count_x * this->count_y, 1, allocation_format);
+	res_n_view->view = create_uav_u32_buffer_descriptor_view(device, this->heap_idx, heap->addr, heap->descriptor_size, this->count_x * this->count_y, allocation_format, uav_dimension, res_n_view->addr);
 	res_n_view->addr->SetName(L"BUFFER2D");
 
 	return *this;
 }
 
-inline func res_buffer::recreate_buffer_1d	(ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u32 count) -> res_buffer {
-	this->info.buffer1d.count = count;
+inline func buffer_1d::recreate	(ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u32 count) -> buffer_1d {
+	this->count = count;
 
-	resource_and_view* res_n_view = arena.load_ptr_by_idx(r_n_v->ptr, this->info.buffer1d.res_and_view_idx);
+	resource_and_view* res_n_view = arena.load_ptr_by_idx(r_n_v->ptr, this->res_and_view_idx);
 	
 	D3D12_TEXTURE_LAYOUT texture_layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 	D3D12_RESOURCE_FLAGS resource_flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
@@ -2036,8 +1971,8 @@ inline func res_buffer::recreate_buffer_1d	(ID3D12Device2* device, memory_arena 
 	D3D12_HEAP_FLAGS heap_flags = D3D12_HEAP_FLAG_ALLOW_SHADER_ATOMICS;
 	DXGI_FORMAT allocation_format = DXGI_FORMAT_UNKNOWN;
 	
-	res_n_view->addr = allocate_data_on_gpu(device, heap_type, heap_flags, texture_layout, resource_flags, resource_states, resource_dimension, sizeof(u32) * this->info.buffer1d.count, 1, allocation_format);
-	res_n_view->view = create_uav_u32_buffer_descriptor_view(device, this->info.buffer1d.heap_idx, heap->addr, heap->descriptor_size, this->info.buffer1d.count, allocation_format, uav_dimension, res_n_view->addr);
+	res_n_view->addr = allocate_data_on_gpu(device, heap_type, heap_flags, texture_layout, resource_flags, resource_states, resource_dimension, sizeof(u32) * this->count, 1, allocation_format);
+	res_n_view->view = create_uav_u32_buffer_descriptor_view(device, this->heap_idx, heap->addr, heap->descriptor_size, this->count, allocation_format, uav_dimension, res_n_view->addr);
 	res_n_view->addr->SetName(L"BUFFER1D");
 
 	return *this;
@@ -2064,24 +1999,8 @@ void update(dx_context *ctx)
 
 	render_pass			pass 		= ctx->mem_arena.load_by_idx<render_pass>(ctx->compute_stage.render_passes.ptr, 0);
 	compute_pipeline 	pipeline 	= ctx->mem_arena.load(pass.curr_pipeline_c);
-	res_buffer*			buffers		= ctx->mem_arena.get_array(pipeline.buffers);
 
-	for(u32 i = 0; i < ctx->compute_stage.render_passes.count; ++i) {
-		for(u32 idx = 0; idx < pipeline.buffers.count; ++idx) {
-			switch(buffers[idx].type)
-			{
-				case res_buffer::constant_buffer: {
-					memcpy(buffers[idx].info.cbuffer.mapped_view, &ctx->common_cbuff_data, sizeof(ctx->common_cbuff_data));
-					//return;
-				}; break;
 
-				default: {}; break;
-			}
-		}
-	}
-
-	// TODO(DH): Move this to ^
-	// memcpy(entity->cb_data_begin, &ctx->common_cbuff_data, sizeof(ctx->common_cbuff_data));
 }
 
 void recompile_shader(dx_context *ctx, rendering_stage rndr_stage)
@@ -2432,70 +2351,9 @@ ID3D12GraphicsCommandList* generate_command_buffer(dx_context *context)
 	ID3D12DescriptorHeap* ppHeaps[] = { srv_dsc_heap.addr};
 	record_dsc_heap(context->g_command_list, ppHeaps, _countof(ppHeaps));
 
-	auto buffers 	= context->mem_arena.get_array(g_p.buffers);
-	auto textures 	= context->mem_arena.get_array(g_p.textures);
-	auto rtv_s 		= context->mem_arena.get_array(g_p.rtv_s);
-
 	u32 index_count_per_instance = 0;
 
-	u32 current_resource = 0;
-	for(u32 i = 0; i < g_p.buffers.count; ++i) {
-		switch(buffers[i].type) {
-			case res_buffer::TYPE::constant_buffer: {
-				context->g_command_list->SetGraphicsRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(buffers[i].info.cbuffer.heap_idx, 1, context->g_device, srv_dsc_heap.addr));
-				++current_resource;
-			}; break;
-
-			case res_buffer::TYPE::buffer2d: {
-				context->g_command_list->SetGraphicsRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(buffers[i].info.buffer2d.heap_idx, 1, context->g_device, srv_dsc_heap.addr));
-				++current_resource;
-			}; break;
-
-			case res_buffer::TYPE::buffer1d: {
-				context->g_command_list->SetGraphicsRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(buffers[i].info.buffer1d.heap_idx, 1, context->g_device, srv_dsc_heap.addr));
-				++current_resource;
-			}; break;
-
-			case res_buffer::TYPE::vertex_buffer: {
-				context->g_command_list->IASetVertexBuffers(0, 1, &buffers[i].info.vtex_buffer.view);
-				++current_resource;
-			}; break;
-
-			case res_buffer::TYPE::index_buffer: {
-				context->g_command_list->IASetIndexBuffer(&buffers[i].info.idex_buffer.view);
-				context->g_command_list->DrawIndexedInstanced(buffers[i].info.idex_buffer.size_of_data / sizeof(u32), 1, 0, 0, 0);
-				++current_resource;
-			}; break;
-		}
-	}
-
-	for(u32 i = 0; i < g_p.textures.count; ++i) {
-		switch(textures[i].type) {
-			case res_texture::TYPE::texture2d: {
-				context->g_command_list->SetGraphicsRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(textures[i].info.texture2d.heap_idx, 1, context->g_device, srv_dsc_heap.addr));
-				++current_resource;
-			}; break;
-
-			case res_texture::TYPE::texture1d: {
-				context->g_command_list->SetGraphicsRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(textures[i].info.texture1d.heap_idx, 1, context->g_device, srv_dsc_heap.addr));
-				++current_resource;
-			}; break;
-		}
-	}
-
-	for(u32 i = 0; i < g_p.rtv_s.count; ++i) {
-		switch(rtv_s[i].type) {
-			case res_render_target::TYPE::render_target2d: {
-				context->g_command_list->SetGraphicsRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(rtv_s[i].info.render_target2d.heap_idx, 1, context->g_device, srv_dsc_heap.addr));
-				++current_resource;
-			}; break;
-
-			case res_render_target::TYPE::render_target1d: {
-				context->g_command_list->SetGraphicsRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(rtv_s[i].info.render_target1d.heap_idx, 1, context->g_device, srv_dsc_heap.addr));
-				++current_resource;
-			}; break;
-		}
-	}
+	context->generate_binding_table(context, context->bindings);
 	
 	// Execute bundle
 	// context->g_command_list->ExecuteBundle(entity.bundle);
@@ -2642,76 +2500,76 @@ ID3D12GraphicsCommandList* generate_compute_command_buffer(dx_context *ctx)
 	ID3D12DescriptorHeap* ppHeaps[] = { srv_dsc_heap.addr};
 	record_dsc_heap(ctx->g_compute_command_list, ppHeaps, _countof(ppHeaps));
 
-	auto buffers 	= ctx->mem_arena.get_array(c_p_1.buffers);
-	auto textures 	= ctx->mem_arena.get_array(c_p_1.textures);
-	auto rtv_s 		= ctx->mem_arena.get_array(c_p_1.rtv_s);
+	// auto buffers 	= ctx->mem_arena.get_array(c_p_1.buffers);
+	// auto textures 	= ctx->mem_arena.get_array(c_p_1.textures);
+	// auto rtv_s 		= ctx->mem_arena.get_array(c_p_1.rtv_s);
 
-	u32 current_resource = 0;
-	for(u32 i = 0; i < c_p_1.buffers.count; ++i) {
-		switch(buffers[i].type) {
-			case res_buffer::TYPE::constant_buffer: {
-				ctx->g_compute_command_list->SetComputeRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(buffers[i].info.cbuffer.heap_idx, 1, ctx->g_device, srv_dsc_heap.addr));
-				++current_resource;
-			}; break;
+	// u32 current_resource = 0;
+	// for(u32 i = 0; i < c_p_1.buffers.count; ++i) {
+	// 	switch(buffers[i].type) {
+	// 		case res_buffer::TYPE::constant_buffer: {
+	// 			ctx->g_compute_command_list->SetComputeRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(buffers[i].info.cbuffer.heap_idx, 1, ctx->g_device, srv_dsc_heap.addr));
+	// 			++current_resource;
+	// 		}; break;
 
-			case res_buffer::TYPE::buffer2d: {
-				ctx->g_compute_command_list->SetComputeRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(buffers[i].info.buffer2d.heap_idx, 1, ctx->g_device, srv_dsc_heap.addr));
-				++current_resource;
-			}; break;
+	// 		case res_buffer::TYPE::buffer2d: {
+	// 			ctx->g_compute_command_list->SetComputeRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(buffers[i].info.buffer2d.heap_idx, 1, ctx->g_device, srv_dsc_heap.addr));
+	// 			++current_resource;
+	// 		}; break;
 
-			case res_buffer::TYPE::buffer1d: {
-				ctx->g_compute_command_list->SetComputeRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(buffers[i].info.buffer1d.heap_idx, 1, ctx->g_device, srv_dsc_heap.addr));
-				++current_resource;
-			}; break;
+	// 		case res_buffer::TYPE::buffer1d: {
+	// 			ctx->g_compute_command_list->SetComputeRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(buffers[i].info.buffer1d.heap_idx, 1, ctx->g_device, srv_dsc_heap.addr));
+	// 			++current_resource;
+	// 		}; break;
 
-			default: { assert(!"You not supposed to bind that, filthy! :D"); }; break;
-		}
-	}
+	// 		default: { assert(!"You not supposed to bind that, filthy! :D"); }; break;
+	// 	}
+	// }
 
-	for(u32 i = 0; i < c_p_1.textures.count; ++i) {
-		switch(textures[i].type) {
-			case res_texture::TYPE::texture2d: {
-				ctx->g_compute_command_list->SetComputeRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(textures[i].info.texture2d.heap_idx, 1, ctx->g_device, srv_dsc_heap.addr));
-				++current_resource;
-			}; break;
+	// for(u32 i = 0; i < c_p_1.textures.count; ++i) {
+	// 	switch(textures[i].type) {
+	// 		case res_texture::TYPE::texture2d: {
+	// 			ctx->g_compute_command_list->SetComputeRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(textures[i].info.texture2d.heap_idx, 1, ctx->g_device, srv_dsc_heap.addr));
+	// 			++current_resource;
+	// 		}; break;
 
-			case res_texture::TYPE::texture1d: {
-				ctx->g_compute_command_list->SetComputeRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(textures[i].info.texture1d.heap_idx, 1, ctx->g_device, srv_dsc_heap.addr));
-				++current_resource;
-			}; break;
-		}
-	}
+	// 		case res_texture::TYPE::texture1d: {
+	// 			ctx->g_compute_command_list->SetComputeRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(textures[i].info.texture1d.heap_idx, 1, ctx->g_device, srv_dsc_heap.addr));
+	// 			++current_resource;
+	// 		}; break;
+	// 	}
+	// }
 
-	for(u32 i = 0; i < c_p_1.rtv_s.count; ++i) {
-		switch(rtv_s[i].type) {
-			case res_render_target::TYPE::render_target2d: {
-				ctx->g_compute_command_list->SetComputeRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(rtv_s[i].info.render_target2d.heap_idx, 1, ctx->g_device, srv_dsc_heap.addr));
-				++current_resource;
-			}; break;
+	// for(u32 i = 0; i < c_p_1.rtv_s.count; ++i) {
+	// 	switch(rtv_s[i].type) {
+	// 		case res_render_target::TYPE::render_target2d: {
+	// 			ctx->g_compute_command_list->SetComputeRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(rtv_s[i].info.render_target2d.heap_idx, 1, ctx->g_device, srv_dsc_heap.addr));
+	// 			++current_resource;
+	// 		}; break;
 
-			case res_render_target::TYPE::render_target1d: {
-				ctx->g_compute_command_list->SetComputeRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(rtv_s[i].info.render_target1d.heap_idx, 1, ctx->g_device, srv_dsc_heap.addr));
-				++current_resource;
-			}; break;
-		}
-	}
+	// 		case res_render_target::TYPE::render_target1d: {
+	// 			ctx->g_compute_command_list->SetComputeRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(rtv_s[i].info.render_target1d.heap_idx, 1, ctx->g_device, srv_dsc_heap.addr));
+	// 			++current_resource;
+	// 		}; break;
+	// 	}
+	// }
 
 	ctx->g_compute_command_list->Dispatch(32,32,12);
 	
 	ctx->g_compute_command_list->SetPipelineState(c_p_2.state);
-	u32 width = rtv_s[0].info.render_target2d.width;
-	u32 height = rtv_s[0].info.render_target2d.height;
-	u32 dispatch_X = (width / 8) + 1;
-	u32 dispatch_y = (height / 8) + 1;
+	// u32 width = rtv_s[0].info.render_target2d.width;
+	// u32 height = rtv_s[0].info.render_target2d.height;
+	// u32 dispatch_X = (width / 8) + 1;
+	// u32 dispatch_y = (height / 8) + 1;
 
-	ctx->g_compute_command_list->Dispatch(dispatch_X, dispatch_y, 1);
+	// ctx->g_compute_command_list->Dispatch(dispatch_X, dispatch_y, 1);
 
 	// 4.) Copy result from back buffer to screen
 	ID3D12Resource* screen_buffer = ctx->g_back_buffers[ctx->g_frame_index];
 
 	record_resource_barrier(1,  barrier_transition(screen_buffer, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_DEST), ctx->g_compute_command_list);
-	auto texture = ctx->mem_arena.load_ptr_by_idx<resource_and_view>(ctx->resources_and_views.ptr, rtv_s[0].info.render_target2d.res_and_view_idx);
-	ctx->g_compute_command_list->CopyResource(screen_buffer, texture->addr);
+	// auto texture = ctx->mem_arena.load_ptr_by_idx<resource_and_view>(ctx->resources_and_views.ptr, rtv_s[0].info.render_target2d.res_and_view_idx);
+	// ctx->g_compute_command_list->CopyResource(screen_buffer, texture->addr);
 	record_resource_barrier(1,  barrier_transition(screen_buffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PRESENT), ctx->g_compute_command_list);
 
 	//Finally executing the filled Command List into the Command Queue
