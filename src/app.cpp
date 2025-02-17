@@ -1,5 +1,6 @@
 #ifndef UNICODE
 #define UNICODE
+#include <basetsd.h>
 #include <combaseapi.h>
 #include <memoryapi.h>
 #include <propsys.h>
@@ -187,12 +188,16 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 			case WM_PAINT: {
 					// if(!global_pause) 
 					{
+						particle_simulation* sim_data = (particle_simulation*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+
 						f32 current_time = GetCurrentTime();
 						f32 delta_time = current_time - last_time;
 						last_time = current_time;
 
 						directx_context.dt_for_frame = delta_time * 0.001;
 						update(&directx_context);
+
+						sim_data->update_particles(directx_context.dt_for_frame);
 
 						auto triangle_cmd_list = generate_command_buffer(&directx_context);
 						// auto compute_cmd_list = generate_compute_command_buffer(&directx_context);
@@ -370,10 +375,15 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         return 0;
     }
 
+	// NOTE(DH): Below is the initialization of resources
+
 	directx_context.g_hwnd = hwnd;
 
 	//NOTE(DH): Full directx initialization
 	directx_context = init_dx(directx_context.g_hwnd);
+
+	auto p_sim = initialize_simulation(&directx_context, 32, 9.7f, 0.5f);
+	SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)&p_sim);
 
 	//NOTE(DH): Initialize IMGUI {
 	IMGUI_CHECKVERSION();

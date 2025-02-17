@@ -83,7 +83,7 @@ public:
 	}
 
 	template<typename T>
-	inline func write_array(T* data_to_copy, usize count) -> arena_array<T> {
+	inline func push_array(T* data_to_copy, usize count) -> arena_array<T> {
 		arena_array array = {.capacity = (u32)count, .count = count, .ptr = mem_alloc_aligned<T>(this, count)};
 		stored_elem<T> *elem = (stored_elem<T>*)(this->base + array.ptr.offset);
 		memcpy((T*)&elem->data, data_to_copy, sizeof(T) * count);
@@ -107,7 +107,7 @@ public:
 	}
 
 	template<typename T>
-	inline func push_array(usize count) -> arena_array<T> {
+	inline func alloc_array(usize count) -> arena_array<T> {
 		return {.capacity = (u32)count, .count = 0, .ptr = mem_alloc_aligned<T>(this, count)};
 	}
 

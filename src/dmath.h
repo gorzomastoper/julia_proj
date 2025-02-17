@@ -754,7 +754,7 @@ length(v3 A)
 inline v3
 normalize(v3 A)
 {
-	v3 Result = A * (1.0f / length(A));
+	v3 Result = A * (SafeRatio0(1.0f, length(A)));
 	
 	return(Result);
 }
@@ -1395,4 +1395,44 @@ operator*(mat4 A, mat4 B)
 	}
 	
 	return Result;
+}
+
+inline func create_ortho_matrix(float left, float right, float bottom, float top, float nearZ, float farZ) -> mat4 {
+	mat4 result = Identity();
+	result.Value1_1 = 2.0 / (right - left);
+	result.Value2_2 = 2.0 / (top - bottom);
+	result.Value3_3 = SafeRatio0(2.0, (farZ - nearZ));
+	result.Value1_4 = -((right + left) / (right - left));
+	result.Value2_4 = -((top + bottom) / (top - bottom));
+	result.Value3_4 = -(SafeRatio0(farZ + nearZ, farZ - nearZ));
+	return result;
+}
+
+inline func look_at_matrix(v3 eye, v3 pos, v3 up) -> mat4 {
+	v3 forward 	= normalize	(pos - eye);
+	v3 right 	= normalize	(cross(up, forward));
+	v3 new_up 	= cross		(forward, right);
+
+	v3 normalized_dot_right = normalize(Hadamard(right, eye));
+	v3 normalized_dot_new_up = normalize(Hadamard(new_up, eye));
+	v3 normalized_dot_forward = normalize(Hadamard(forward, eye));
+	float x = -(normalized_dot_right.x);
+	float y = -(normalized_dot_new_up.x);
+	float z = (normalized_dot_forward.x);
+
+	mat4 result = Identity();
+	result.Value1_1 = right.x; result.Value1_2 = new_up.x; result.Value1_3 = -forward.x; result.Value1_4 = 0.0f;
+	result.Value2_1 = right.y; result.Value2_2 = new_up.y; result.Value2_3 = -forward.y; result.Value2_4 = 0.0f;
+	result.Value3_1 = right.z; result.Value3_2 = new_up.z; result.Value3_3 = -forward.z; result.Value3_4 = 0.0f;
+	result.Value4_1 = x; result.Value4_2 = y; result.Value4_3 = z;
+	
+	return result;
+}
+
+inline func translation_matrix(v3 target_pos) -> mat4 {
+	mat4 result = Identity();
+	result.Value1_4 = target_pos.x;
+	result.Value2_4 = target_pos.y;
+	result.Value3_4 = target_pos.z;
+	return result;
 }

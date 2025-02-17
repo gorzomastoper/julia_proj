@@ -7,8 +7,6 @@
 #include "dmath.h"
 #define IMGUI_DEFINE_MATH_OPERATORS
 
-#include "simulation_of_particles.h"
-
 //NOTE(DH): This is PIX support
 
 #include <wrl.h> //For WRL::ComPtr
@@ -61,9 +59,9 @@ struct vertex
 struct c_buffer
 {
 	v4 offset;
-	//v4 mouse_pos;
-	//mat4 MVP_matrix;
-	v4 padding[15]; // Padding so the constant buffer is 256-byte aligned.
+	v4 mouse_pos;
+	mat4 MVP_matrix;
+	v4 padding[10]; // Padding so the constant buffer is 256-byte aligned.
 };
 static_assert((sizeof(c_buffer) % 256) == 0, "Constant Buffer size must be 256-byte aligned");
 
@@ -98,8 +96,8 @@ struct buffer_2d {
 	u32 heap_idx;
 	buf_format fmt;
 
-	static inline func create (ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, 	u32 count_x, u32 count_y, u32 register_index) -> buffer_2d;
-	inline func recreate (ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, 	u32 count_x, u32 count_y) -> buffer_2d;
+	static inline func create (ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u32 count_x, u32 count_y, u32 size_of_one_elem, u8* data, u32 register_index) -> buffer_2d;
+	inline func recreate (ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, 	u32 count_x, u32 count_y, u32 size_of_one_elem, u8* data) -> buffer_2d;
 };
 
 struct buffer_1d {
@@ -112,8 +110,8 @@ struct buffer_1d {
 	u32 				heap_idx;
 	buf_format fmt;
 
-	static inline func create (ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u32 count, u32 register_index) -> buffer_1d;
-	inline func recreate (ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, 	u32 count) -> buffer_1d;
+	static inline func create (ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u32 count, u32 size_of_one_elem, u8* data, u32 register_index) -> buffer_1d;
+	inline func recreate (ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, 	u32 count, u32 size_of_one_elem, u8* data) -> buffer_1d;
 };
 
 struct buffer_vtex {
@@ -221,7 +219,7 @@ struct render_target1d {
 	inline func recreate (ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 width) -> render_target1d;
 };
 
-template<bool, typename T, typename TS>
+template<bool, bool, typename T, typename TS>
 struct t_list_cons {
 	arena_ptr<T> el;
 	TS tail;
@@ -238,9 +236,9 @@ struct binding {
 	BUF_TS data;
 	using BUF_TS_U = BUF_TS;
 
-	template<bool B, typename BUF_TNEW>
-	func bind_buffer(arena_ptr<BUF_TNEW> buffer) -> binding<t_list_cons<B, BUF_TNEW, BUF_TS>> {
-		return binding<t_list_cons<B, BUF_TNEW, BUF_TS>> { .data = { .el = buffer, .tail = data} };
+	template<bool B, bool U, typename BUF_TNEW>
+	func bind_buffer(arena_ptr<BUF_TNEW> buffer) -> binding<t_list_cons<B, U, BUF_TNEW, BUF_TS>> {
+		return binding<t_list_cons<B, U, BUF_TNEW, BUF_TS>> { .data = { .el = buffer, .tail = data} };
 	}
 };
 
@@ -274,13 +272,27 @@ struct graphic_pipeline {
 	D3D12_INDEX_BUFFER_VIEW			indx_buff_view;
 	u32								number_of_resources;
 	u32								mesh_instance_num;
+	arena_ptr<void> 				bindings;	
+
 	public:
-	static inline func init__	() -> graphic_pipeline { 
-		graphic_pipeline result = {};
+	static inline func init__(arena_ptr<void> bindings, 
+			void (*RSZ)(dx_context *context, u32 width, u32 height, arena_ptr<void> bindings), 
+			void (*GBT)(dx_context *context, arena_ptr<void> bindings), 
+			void (*UPD)(dx_context *context, arena_ptr<void> bindings)) 
+				-> graphic_pipeline {
+		graphic_pipeline result 		= {};
+		result.bindings 				= bindings;
+		result.resize 					= RSZ;
+		result.generate_binding_table 	= GBT;
+		result.update					= UPD;
 		return result; 
 	};
 
-	void(*build_binding_table)(ID3D12GraphicsCommandList *cmd_list, void* bindings);
+	void (*resize)(dx_context *context, u32 width, u32 height, arena_ptr<void> bindings);
+
+	void (*update)(dx_context *context, arena_ptr<void> bindings);
+
+	void (*generate_binding_table)(dx_context *context, arena_ptr<void> bindings);
 	
 	template<typename T>
 	inline func create_root_sig		(binding<T> bindings, ID3D12Device2 *device, memory_arena *arena) 	-> graphic_pipeline;
@@ -298,11 +310,27 @@ struct compute_pipeline {
 	ID3D12PipelineState*			state;
 	ID3DBlob* 						shader_blob;
 	u32								number_of_resources;
+	arena_ptr<void> 				bindings;
+
 public:
-	static inline func init__	() -> compute_pipeline { 
-		compute_pipeline result = {};
+	static inline func init__	(arena_ptr<void> bindings, 
+			void (*RSZ)(dx_context *context, u32 width, u32 height, arena_ptr<void> bindings), 
+			void (*GBT)(dx_context *context, arena_ptr<void> bindings), 
+			void (*UPD)(dx_context *context, arena_ptr<void> bindings)) 
+				-> compute_pipeline { 
+		compute_pipeline result 		= {};
+		result.bindings 				= bindings;
+		result.resize 					= RSZ;
+		result.generate_binding_table 	= GBT;
+		result.update					= UPD;
 		return result;
 	};
+
+	void (*resize)(dx_context *context, u32 width, u32 height, arena_ptr<void> bindings);
+
+	void (*update)(dx_context *context, arena_ptr<void> bindings);
+
+	void (*generate_binding_table)(dx_context *context, arena_ptr<void> bindings);
 
 	template<typename T>
 	inline func create_root_sig	(binding<T> bindings, ID3D12Device2 *device, memory_arena *arena) 	-> compute_pipeline;
@@ -332,7 +360,7 @@ struct rendering_stage {
 public:
 	static inline func init__(memory_arena *arena, u32 max_num_of_passes) -> rendering_stage {
 		rendering_stage result = {};
-		result.render_passes = arena->push_array<render_pass>(max_num_of_passes);
+		result.render_passes = arena->alloc_array<render_pass>(max_num_of_passes);
 		return result;
 	};
 
@@ -347,25 +375,6 @@ public:
 		passes[this->render_passes.count++].curr_pipeline_g = arena->write(pipeline);
 		return *this;
 	};
-};
-
-struct rendered_entity
-{
-	ID3D12GraphicsCommandList*	bundle;
-
-	ID3D12Resource* 			vertex_buffer;
-	ID3D12Resource* 			index_buffer;
-    D3D12_VERTEX_BUFFER_VIEW 	vertex_buffer_view;
-    D3D12_INDEX_BUFFER_VIEW 	index_buffer_view;
-	ID3D12Resource*				constant_buffer;
-	c_buffer					cb_scene_data;
-	u8*							cb_data_begin;
-
-	ID3DBlob* 					vertex_shader;
-    ID3DBlob* 					pixel_shader;
-
-	ID3D12Resource* 			texture_upload_heap;
-	ID3D12Resource* 			texture;
 };
 
 struct dx_context
@@ -411,10 +420,7 @@ struct dx_context
 
 	memory_arena mem_arena;
 
-	arena_array<rendered_entity> 	entities_array;
 	arena_array<resource_and_view> 	resources_and_views;
-
-	arena_ptr<void> bindings;
 	
 	rendering_stage	graphic_stage;
 	rendering_stage	compute_stage;
@@ -434,9 +440,6 @@ struct dx_context
 	HWND g_hwnd;
 	//Window rectangle used to store window dimensions when in window mode
 	RECT g_wind_rect;
-
-	void (*resize)(dx_context *context, u32 width, u32 height, arena_ptr<void> bindings);
-	void (*generate_binding_table)(dx_context *context, arena_ptr<void> bindings);
 
 	//NOTE: When you "signal" the Command Queue for a Frame, it means we set a new frame fence value
 	//Other window state variables
@@ -486,6 +489,8 @@ func create_uav_descriptor_view		(ID3D12Device2* device, u32 index, ID3D12Descri
 func create_srv_descriptor_view		(ID3D12Device2* device, u32 index, ID3D12DescriptorHeap *desc_heap, u32 desc_size, DXGI_FORMAT format, D3D12_SRV_DIMENSION dim, ID3D12Resource *p_resource) -> CD3DX12_CPU_DESCRIPTOR_HANDLE;
 
 func create_uav_u32_buffer_descriptor_view(ID3D12Device2* device, u32 index, ID3D12DescriptorHeap *desc_heap, u32 desc_size, u32 num_of_elements, DXGI_FORMAT format, D3D12_UAV_DIMENSION dim, ID3D12Resource *p_resource) -> CD3DX12_CPU_DESCRIPTOR_HANDLE;
+
+func create_uav_buffer_descriptor_view(ID3D12Device2* device, u32 index, ID3D12DescriptorHeap *desc_heap, u32 desc_size, u32 num_of_elements, u32 size_of_one_elem, DXGI_FORMAT format, D3D12_UAV_DIMENSION dim, ID3D12Resource *p_resource) -> CD3DX12_CPU_DESCRIPTOR_HANDLE;
 
 func allocate_data_on_gpu 			(ID3D12Device2* device, D3D12_HEAP_TYPE hep_ty, D3D12_HEAP_FLAGS hep_fgs, D3D12_TEXTURE_LAYOUT lyot, D3D12_RESOURCE_FLAGS r_fgs, D3D12_RESOURCE_STATES sts, D3D12_RESOURCE_DIMENSION dim, u64 w, u64 h, DXGI_FORMAT fmt) -> ID3D12Resource*;
 
