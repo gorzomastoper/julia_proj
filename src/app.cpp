@@ -196,17 +196,23 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 
 						directx_context.dt_for_frame = delta_time * 0.001;
 						update(&directx_context);
+						
+						render_pass			pass		= directx_context.mem_arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 0);
+						graphic_pipeline 	pipeline 	= directx_context.mem_arena.load(pass.curr_pipeline_g);
 
 						sim_data->update_particles(directx_context.dt_for_frame);
 
-						auto triangle_cmd_list = generate_command_buffer(&directx_context);
-						// auto compute_cmd_list = generate_compute_command_buffer(&directx_context);
+						// auto triangle_cmd_list = generate_command_buffer(&directx_context);
+						// auto compute_cmd_list = generate_compute_command_buffer(&directx_context, directx_context.viewport.Width, directx_context.viewport.Height);
+						auto draw_circles 	= generate_command_buffer(&directx_context, directx_context.mem_arena, sim_data->cmd_list, sim_data->simulation_desc_heap, sim_data->rndr_stage);
 						auto imgui_cmd_list = generate_imgui_command_buffer(&directx_context);
+						
+						pipeline.update(&directx_context, &sim_data->simulation_desc_heap, &directx_context.mem_arena, sim_data->cmd_list, pipeline.bindings);
 
 						float clear_color[] = { 0.0f, 0.2f, 0.4f, 1.0f };
 						// render(&directx_context, compute_cmd_list);
 						// clear_render_target(directx_context, triangle_cmd_list, clear_color);
-						render(&directx_context, triangle_cmd_list);
+						render(&directx_context, draw_circles);
 						render(&directx_context, imgui_cmd_list);
 
 						// Do not wait for frame, just move to the next one
@@ -237,6 +243,13 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 				} else if (wParam == SIZE_RESTORED){
 					global_pause = false;
 					resize(&directx_context, main_window_info.width, main_window_info.height);
+
+					particle_simulation* sim_data = (particle_simulation*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+					sim_data->ndc_matrix			= screen_to_ndc(main_window_info.width, main_window_info.height);
+
+					render_pass			pass		= directx_context.mem_arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 0);
+					graphic_pipeline 	pipeline 	= directx_context.mem_arena.load(pass.curr_pipeline_g);
+					pipeline.resize(&directx_context, &sim_data->simulation_desc_heap, &directx_context.mem_arena, main_window_info.width, main_window_info.height, pipeline.bindings);
 				}
 #else
 				do_redraw(hwnd);
@@ -382,7 +395,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	//NOTE(DH): Full directx initialization
 	directx_context = init_dx(directx_context.g_hwnd);
 
-	auto p_sim = initialize_simulation(&directx_context, 32, 9.7f, 0.5f);
+	auto p_sim = initialize_simulation(&directx_context, 32, 90.7f, 0.7f);
 	SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)&p_sim);
 
 	//NOTE(DH): Initialize IMGUI {

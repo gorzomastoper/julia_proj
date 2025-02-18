@@ -1436,3 +1436,10 @@ inline func translation_matrix(v3 target_pos) -> mat4 {
 	result.Value3_4 = target_pos.z;
 	return result;
 }
+
+inline func screen_to_ndc(u32 width, u32 height) -> mat4 {
+	mat4 result = Identity();
+	result.Value1_1 = 2.0f / width; result.Value1_4 = -1.0f;
+	result.Value2_2 = 2.0f / height; result.Value2_4 = -1.0f;
+	return result;
+}
