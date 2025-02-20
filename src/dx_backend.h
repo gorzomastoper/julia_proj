@@ -17,7 +17,6 @@
 #include <d3dcompiler.h>
 //#include <D3D12Window.h>
 #include <shellapi.h>//for CommandLineToArgvW .. getting command line arguments
-#include <chrono>
 
 #if 1
 #include <initguid.h>

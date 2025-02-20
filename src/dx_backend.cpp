@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <synchapi.h>
 #include <vector>
+#include <chrono>
 #include <winnt.h>
 #include <wrl/client.h>
 

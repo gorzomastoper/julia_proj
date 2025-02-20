@@ -294,10 +294,10 @@ Tan(f32 Angle)
 	return(Result);
 }
 
-inline v2
+inline v2i
 V2i(i32 x, i32 y)
 {
-	v2 Result = {(f32)x, (f32)y};
+	v2i Result = { x, y};
 	
 	return(Result);
 }

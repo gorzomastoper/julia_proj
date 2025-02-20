@@ -241,6 +241,11 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 							ImGui::SliderFloat(VAR_NAME(sim_data->bounds_size.x), &sim_data->bounds_size.x, 1.0f, (f32)width);
 							ImGui::SliderFloat(VAR_NAME(sim_data->bounds_size.y), &sim_data->bounds_size.y, 1.0f, (f32)height);
 							ImGui::SliderFloat(VAR_NAME(sim_data->info_for_cshader.smoothing_radius), &sim_data->info_for_cshader.smoothing_radius, 0.0f, 10.0f);
+							// ImGui::ColorPicker4("Color a", (f32*)&sim_data->info_for_cshader.color_a);
+							// ImGui::SameLine();
+							// ImGui::ColorPicker4("Color b", (f32*)&sim_data->info_for_cshader.color_b);
+							// ImGui::SameLine();
+							// ImGui::ColorPicker4("Color c", (f32*)&sim_data->info_for_cshader.color_c);
 					
 							if(ImGui::Button("Recompile Shader"))
 								ctx->g_recompile_shader = true;
@@ -470,7 +475,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	//NOTE(DH): Full directx initialization
 	directx_context = init_dx(directx_context.g_hwnd);
 
-	auto p_sim = initialize_simulation(&directx_context, 404, 0.0f, 0.7f);
+	auto p_sim = initialize_simulation(&directx_context, 1024, 0.0f, 0.7f);
 	SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)&p_sim);
 
 	//NOTE(DH): Initialize IMGUI {

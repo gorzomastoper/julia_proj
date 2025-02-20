@@ -1,4 +1,5 @@
 #include "simulation_of_particles.h"
+#include <algorithm>
 #include <cmath>
 #include <numbers>
 #include <random>
@@ -65,6 +66,88 @@ static inline func get_random_dir() -> v2 {
 	return V2(x, y);
 }
 
+// NOTE(DH): Convert position to the coordinate of the cell it is within
+static inline func position_to_cell_coord (v2 point, f32 radius) -> v2i {
+	i32 cell_x = i32(point.x / radius);
+	i32 cell_y = i32(point.y / radius);
+	return V2i(cell_x, cell_y);
+}
+
+// NOTE(DH): Convert a cell coordinate into a single number
+// Hash collisions (different cells -> same value) are unavoidable, but we want to
+// at least try to minimize collisions for nearby cells. Mabe better ways is exist, but
+// this is my approach, so it works for now :)
+static inline func hash_cell(i32 cell_x, i32 cell_y) -> u32 {
+	u32 a = (u32)cell_x * 15823;
+	u32 b = (u32)cell_y * 9737333;
+	return a + b;
+}
+
+// NOTE(DH): Wrap the hash value around the length of the array (so it can be used as an index)
+static inline func get_key_from_hash(u32 hash, u32 array_count) -> u32 {
+	return hash % array_count;
+}
+
+inline func particle_simulation::foreach_point_within_radius(v2 sample_point) -> void {
+	auto indices = arena.get_array(this->start_indices);
+	auto spatial_lookup = arena.get_array(this->spatial_lookup);
+	auto points	= arena.get_array(this->p_n_v);
+
+	v2i centre = position_to_cell_coord(sample_point, this->info_for_cshader.smoothing_radius);
+	f32 sqr_radius = this->info_for_cshader.smoothing_radius * this->info_for_cshader.smoothing_radius;
+
+	auto cell_offsets = arena.get_array(this->cell_offsets);
+
+	for(u32 i = 0; i < this->cell_offsets.count; ++i) {
+		u32 key = get_key_from_hash(hash_cell(centre.x + cell_offsets[i].x, centre.y + cell_offsets[i].y), this->cell_offsets.count);
+		i32 cell_start_index = indices[key];
+
+		for(i32 j = cell_start_index; j < this->spatial_lookup.count; ++j) {
+			if(spatial_lookup[j].cell_key != key) break;
+
+			u32 particle_index  = spatial_lookup[j].particle_index;
+			f32 sqr_dst = Length(points[particle_index].position - sample_point);
+
+			if(sqr_dst <= sqr_radius) {
+				// NOTE(DH): Test if the point is inside the radius
+			}
+		}
+	}
+}
+
+inline func particle_simulation::update_spatial_lookup(f32 radius) -> void {
+	auto indices = arena.get_array(this->start_indices);
+	auto lookup = arena.get_array(this->spatial_lookup);
+	auto points	= arena.get_array(this->p_n_v);
+
+	for(u32 i = 0 ; i < this->p_n_v.count; ++i) {
+		v2i cell = position_to_cell_coord(points[i].position, radius);
+		u32 cell_key = get_key_from_hash(hash_cell(cell.x, cell.y), this->p_n_v.count);
+		lookup[i] = {.particle_index = i, .cell_key = cell_key};
+		indices[i] = 0xFFFFFFFF;
+	}
+
+	auto sort_func = [](spatial_data a, spatial_data b) {
+		return a.cell_key < b.cell_key;
+	};
+
+	std::sort(lookup, lookup + this->spatial_lookup.count, sort_func);
+
+	for(u32 i = 0; i < this->p_n_v.count; ++i) {
+		u32 key = lookup[i].cell_key;
+		u32 key_prev = (i == 0) ? 0xFFFFFFFF : lookup[i - 1].cell_key;
+		if(key != key_prev) {
+			indices[key] = i;
+		}
+	}
+}
+
+inline func particle_simulation::calculate_shared_pressure(f32 density_a, f32 density_b) -> f32 {
+	f32 pressure_A = convert_density_to_pressure(density_a);
+	f32 pressure_B = convert_density_to_pressure(density_b);
+	return (pressure_A + pressure_B) / 2;
+}
+
 inline func particle_simulation::calculate_pressure_force(u32 particle_idx, f32 smoothing_radius) -> v2 {
 	auto particles = arena.get_array(this->particles);
 	auto positions = arena.get_array(this->p_n_v);
@@ -81,8 +164,9 @@ inline func particle_simulation::calculate_pressure_force(u32 particle_idx, f32 
 
 		f32 slope = smoothing_kernel_derivative(dst, smoothing_radius);
 		f32 density = densities[i];
-		pressure_force.x += SafeRatio0(convert_density_to_pressure(density) * dir.x * slope, density);
-		pressure_force.y += SafeRatio0(convert_density_to_pressure(density) * dir.y * slope, density);
+		f32 shared_pressure = calculate_shared_pressure(density, densities[particle_idx]);
+		pressure_force.x += SafeRatio0(shared_pressure * dir.x * slope, density);
+		pressure_force.y += SafeRatio0(shared_pressure * dir.y * slope, density);
 	}
 
 	return pressure_force;
@@ -274,6 +358,8 @@ inline func particle_simulation::simulation_step(f32 delta_time, u32 width, u32 
 	auto particles = arena.get_array(this->particles);
 	auto positions = arena.get_array(this->p_n_v);
 
+	update_spatial_lookup(this->info_for_cshader.smoothing_radius);
+
 	for(u32 i = 0 ; i < this->particles.count; ++i) {
 		v2 position = positions[i].position;
 		v2 velocity = positions[i].velocity;
@@ -320,6 +406,8 @@ inline func initialize_simulation(dx_context *ctx, u32 particle_count, f32 gravi
 	result.final_gradient 		= result.arena.alloc_array<f32>(2560 * 1440);
 	result.final_gradient.count = 2560 * 1440;
 
+	result.cell_offsets			= result.arena.alloc_array<v2i>(2048);
+
 	result.gravity 				= gravity;
 	result.collision_damping 	= collision_damping;
 	result.bounds_size			= V2(18.0f, 10.0f);
@@ -339,7 +427,7 @@ inline func initialize_simulation(dx_context *ctx, u32 particle_count, f32 gravi
 
 	u32 particles_row = (i32)sqrt(particle_count);
 	u32 particle_per_col  = (particle_count - 1) / particles_row + 1;
-	float spacing = particle_size * 2 + 0.4f;
+	float spacing = particle_size * 2 + 0.1f;
 
 	auto prtcles 	= result.arena.get_array(result.particles);
 	auto p_n_vs		= result.arena.get_array(result.p_n_v);
@@ -353,11 +441,11 @@ inline func initialize_simulation(dx_context *ctx, u32 particle_count, f32 gravi
 	std::uniform_real_distribution<> distrib(0, 1.0f);
 
 	for(u32 i = 0; i < result.particles.count; ++i) {
-		float x = (distrib(gen) - 0.5f) * result.bounds_size.x;
-		float y = (distrib(gen) - 0.5f) * result.bounds_size.y;
+		// float x = (distrib(gen) - 0.5f) * result.bounds_size.x;
+		// float y = (distrib(gen) - 0.5f) * result.bounds_size.y;
 
-		// float x = (i % particles_row - particles_row / 2.0f + 0.5f) * spacing;
-		// float y = (i / particles_row - particle_per_col / 2.0f + 0.5f) * spacing;
+		float x = (i % particles_row - particles_row / 2.0f + 0.5f) * spacing;
+		float y = (i / particles_row - particle_per_col / 2.0f + 0.5f) * spacing;
 		
 		p_n_vs[i].position.x = x;
 		p_n_vs[i].position.y = y;
