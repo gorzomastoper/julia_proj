@@ -138,22 +138,24 @@ struct buffer_idex {
 	u8* data;
 	u32 size_of_data;
 	u32 size_of_one_elem;
+	u32 instance_count;
 	u32 register_index;
 	u32 heap_idx;
 	buf_format fmt;
 
-	static inline func create (ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u8* data, u32 size_of_data, u32 register_index) -> buffer_idex;
+	static inline func create (ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u8* data, u32 size_of_data, u32 instance_count, u32 register_index) -> buffer_idex;
 };
 
 struct buffer_cbuf {
 	u32 res_and_view_idx;
 	u32 data_idx;
 	u8* mapped_view;
+	u8* data;
 	u32 register_index;
 	u32 heap_idx;
 	buf_format fmt;
 
-	static inline func create (ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u32 register_index) -> buffer_cbuf;
+	static inline func create (ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u8* data, u32 register_index) -> buffer_cbuf;
 };
 
 enum tex_format {
@@ -279,9 +281,9 @@ struct graphic_pipeline {
 
 	public:
 	static inline func init__(arena_ptr<void> bindings, 
-			void (*RSZ)(dx_context *context, descriptor_heap* heap, memory_arena *arena, u32 width, u32 height, arena_ptr<void> bindings), 
+			void (*RSZ)(dx_context *context, descriptor_heap* heap, memory_arena *arena, arena_array<resource_and_view> resources_and_views, u32 width, u32 height, arena_ptr<void> bindings), 
 			void (*GBT)(dx_context *context, descriptor_heap* heap, memory_arena *arena, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings), 
-			void (*UPD)(dx_context *context, descriptor_heap* heap, memory_arena *arena, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings)) 
+			void (*UPD)(dx_context *context, descriptor_heap* heap, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings)) 
 				-> graphic_pipeline {
 		graphic_pipeline result 		= {};
 		result.bindings 				= bindings;
@@ -291,9 +293,9 @@ struct graphic_pipeline {
 		return result; 
 	};
 
-	void (*resize)(dx_context *context, descriptor_heap* heap, memory_arena *arena, u32 width, u32 height, arena_ptr<void> bindings);
+	void (*resize)(dx_context *context, descriptor_heap* heap, memory_arena *arena, arena_array<resource_and_view> resources_and_views, u32 width, u32 height, arena_ptr<void> bindings);
 
-	void (*update)(dx_context *context, descriptor_heap* heap, memory_arena *arena, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings);
+	void (*update)(dx_context *context, descriptor_heap* heap, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings);
 
 	void (*generate_binding_table)(dx_context *context, descriptor_heap* heap, memory_arena *arena, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings);
 	
@@ -305,7 +307,7 @@ struct graphic_pipeline {
 	inline func bind_frag_shader	(ID3DBlob* shader) 													-> graphic_pipeline;
 	
 	template<typename T>
-	inline func finalize			(binding<T> bindings, dx_context *ctx, memory_arena *arena, ID3D12Device2* device, descriptor_heap *heap) -> graphic_pipeline;
+	inline func finalize			(binding<T> bindings, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12Device2* device, descriptor_heap *heap) -> graphic_pipeline;
 };
 
 struct compute_pipeline {
@@ -317,10 +319,10 @@ struct compute_pipeline {
 
 public:
 	static inline func init__	(arena_ptr<void> bindings, 
-			void (*RSZ)(dx_context *context, descriptor_heap* heap, memory_arena *arena, u32 width, u32 height, arena_ptr<void> bindings), 
+			void (*RSZ)(dx_context *context, descriptor_heap* heap, memory_arena *arena, arena_array<resource_and_view> resources_and_views, u32 width, u32 height, arena_ptr<void> bindings), 
 			void (*GBT)(dx_context *context, descriptor_heap* heap, memory_arena *arena, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings), 
-			void (*UPD)(dx_context *context, descriptor_heap* heap, memory_arena *arena, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings),
-			void (*CTS)(dx_context *context, memory_arena *arena, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings)) 
+			void (*UPD)(dx_context *context, descriptor_heap* heap, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings),
+			void (*CTS)(dx_context *context, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings)) 
 				-> compute_pipeline { 
 		compute_pipeline result 		= {};
 		result.bindings 				= bindings;
@@ -331,13 +333,13 @@ public:
 		return result;
 	};
 
-	void (*resize)(dx_context *context, descriptor_heap* heap, memory_arena *arena, u32 width, u32 height, arena_ptr<void> bindings);
+	void (*resize)(dx_context *context, descriptor_heap* heap, memory_arena *arena, arena_array<resource_and_view> resources_and_views, u32 width, u32 height, arena_ptr<void> bindings);
 
-	void (*update)(dx_context *context, descriptor_heap* heap, memory_arena *arena, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings);
+	void (*update)(dx_context *context, descriptor_heap* heap, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings);
 
 	void (*generate_binding_table)(dx_context *context, descriptor_heap* heap, memory_arena *arena, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings);
 
-	void (*copy_to_screen_rt)(dx_context *context, memory_arena *arena, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings);
+	void (*copy_to_screen_rt)(dx_context *context, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings);
 
 	template<typename T>
 	inline func create_root_sig	(binding<T> bindings, ID3D12Device2 *device, memory_arena *arena) 	-> compute_pipeline;
@@ -345,7 +347,7 @@ public:
 	inline func bind_shader		(ID3DBlob* shader) -> compute_pipeline;
 
 	template<typename T>
-	inline func finalize		(binding<T> bindings, dx_context *ctx, memory_arena *arena, ID3D12Device2* device, descriptor_heap *heap) 	-> compute_pipeline;
+	inline func finalize		(binding<T> bindings, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12Device2* device, descriptor_heap *heap) 	-> compute_pipeline;
 };
 
 struct render_pass {
@@ -479,6 +481,12 @@ func generate_command_buffer		(dx_context *context) -> ID3D12GraphicsCommandList
 func generate_compute_command_buffer(dx_context *ctx, u32 width, u32 height) -> ID3D12GraphicsCommandList*;
 
 func generate_imgui_command_buffer	(dx_context *context) -> ID3D12GraphicsCommandList*;
+
+func start_imgui_frame				() -> void;
+
+func finish_imgui_frame				() -> void;
+
+func imgui_draw_canvas				(dx_context *ctx) -> void;
 
 func move_to_next_frame				(dx_context *context) -> void;
 
@@ -698,7 +706,7 @@ template<bool B, bool U, bool CP, typename TS>
 struct GCB<t_list_cons<B, U, CP, buffer_idex, TS>> {
 	static func bind_root_sig_table(t_list_cons<B, U, CP, buffer_idex, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
 		cmd_list->IASetIndexBuffer(&arena->get_ptr(list.el)->view);
-		cmd_list->DrawIndexedInstanced(arena->get_ptr(list.el)->size_of_data / sizeof(u32), 32, 0, 0, 0);
+		cmd_list->DrawIndexedInstanced(arena->get_ptr(list.el)->size_of_data / sizeof(u32), arena->get_ptr(list.el)->instance_count, 0, 0, 0);
 		GCB<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
 	}
 };
@@ -772,23 +780,6 @@ struct GCBC<t_list_cons<B, U, CP, buffer_1d, TS>> {
 };
 
 template<bool B, bool U, bool CP, typename TS>
-struct GCBC<t_list_cons<B, U, CP, buffer_vtex, TS>> {
-	static func bind_root_sig_table(t_list_cons<B, U, CP, buffer_vtex, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
-		cmd_list->IASetVertexBuffers(0, 1, &arena->get_ptr(list.el)->view);
-		GCBC<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
-	}
-};
-
-template<bool B, bool U, bool CP, typename TS>
-struct GCBC<t_list_cons<B, U, CP, buffer_idex, TS>> {
-	static func bind_root_sig_table(t_list_cons<B, U, CP, buffer_idex, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
-		cmd_list->IASetIndexBuffer(&arena->get_ptr(list.el)->view);
-		cmd_list->DrawIndexedInstanced(arena->get_ptr(list.el)->size_of_data / sizeof(u32), 32, 0, 0, 0);
-		GCBC<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
-	}
-};
-
-template<bool B, bool U, bool CP, typename TS>
 struct GCBC<t_list_cons<B, U, CP, texture_2d, TS>> {
 	static func bind_root_sig_table(t_list_cons<B, U, CP, texture_2d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
 		cmd_list->SetComputeRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(arena->get_ptr(list.el)->heap_idx, 1, device, heap));
@@ -829,21 +820,21 @@ struct GCBC<t_list_nil> {
 
 template<typename T>
 struct Update {
-	static func update(T list, dx_context*ctx, memory_arena *arena, ID3D12GraphicsCommandList *cmd_list) -> void { static_assert(!1, "");};
+	static func update(T list, dx_context*ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void { static_assert(!1, "");};
 };
 
 template<bool B, bool CP, typename TS>
 struct Update<t_list_cons<B, true, CP, buffer_cbuf, TS>> {
-	static func update(t_list_cons<B, true, CP, buffer_cbuf, TS> list, dx_context* ctx, memory_arena *arena, ID3D12GraphicsCommandList *cmd_list) -> void {
+	static func update(t_list_cons<B, true, CP, buffer_cbuf, TS> list, dx_context* ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
 		buffer_cbuf buffer = *arena->get_ptr(list.el);
-		memcpy(buffer.mapped_view, &ctx->common_cbuff_data, sizeof(ctx->common_cbuff_data));
-		Update<TS>::update(list.tail, ctx, arena, cmd_list);
+		memcpy(buffer.mapped_view, buffer.data, 256);
+		Update<TS>::update(list.tail, ctx, arena, resources_and_views, cmd_list);
 	}
 };
 
 template<bool B, bool CP, typename TS>
 struct Update<t_list_cons<B, true, CP, buffer_1d, TS>> {
-	static func update(t_list_cons<B, true, CP, buffer_1d, TS> list, dx_context* ctx, memory_arena *arena, ID3D12GraphicsCommandList *cmd_list) -> void {
+	static func update(t_list_cons<B, true, CP, buffer_1d, TS> list, dx_context* ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
 		buffer_1d buffer = *arena->get_ptr(list.el);
 		
 		u8* p_idx_data_begin;
@@ -852,24 +843,24 @@ struct Update<t_list_cons<B, true, CP, buffer_1d, TS>> {
 		memcpy(p_idx_data_begin, buffer.data, buffer.size_of_data);
 		buffer.stg_buff->Unmap(0, nullptr);
 
-		auto r_n_v = &ctx->mem_arena.get_array(ctx->resources_and_views)[buffer.res_and_view_idx];
+		auto r_n_v = &arena->get_array(resources_and_views)[buffer.res_and_view_idx];
 		auto addr4 = CD3DX12_RESOURCE_BARRIER::Transition(r_n_v->addr, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_GENERIC_READ/* | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE*/);
 		cmd_list->CopyBufferRegion(r_n_v->addr, 0, buffer.stg_buff, 0, buffer.size_of_data);
 		cmd_list->ResourceBarrier(1, &addr4);
-		Update<TS>::update(list.tail, ctx, arena, cmd_list);
+		Update<TS>::update(list.tail, ctx, arena, resources_and_views, cmd_list);
 	}
 };
 
 template<bool B, bool U, bool CP, typename T, typename TS>
 struct Update<t_list_cons<B, U, CP, T, TS>> {
-	static func update(t_list_cons<B, U, CP, T, TS> list, dx_context*ctx, memory_arena *arena, ID3D12GraphicsCommandList *cmd_list) -> void {
-		Update<TS>::update(list.tail, ctx, arena, cmd_list);
+	static func update(t_list_cons<B, U, CP, T, TS> list, dx_context*ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
+		Update<TS>::update(list.tail, ctx, arena, resources_and_views, cmd_list);
 	}
 };
 
 template<>
 struct Update<t_list_nil> {
-	static func update(t_list_nil list, dx_context *ctx, memory_arena *arena, ID3D12GraphicsCommandList *cmd_list) {
+	static func update(t_list_nil list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) {
 		return;
 	}
 };
@@ -882,7 +873,7 @@ struct Resize {
 template<bool U, bool CP, typename TS>
 struct Resize<t_list_cons<true, U, CP, buffer_2d, TS>> {
 	static func resize(t_list_cons<true, U, CP, buffer_2d, TS> list, ID3D12Device2* dev, memory_arena ar, descriptor_heap *heap, arena_array<resource_and_view> *rnv, u32 w, u32 h) -> void{
-		ar.get_ptr(list.el)->recreate(dev, ar, heap, rnv, w, h, ar.get_ptr(list.el)->size_of_one_elem, nullptr);
+		ar.get_ptr(list.el)->recreate(dev, ar, heap, rnv, w, h, ar.get_ptr(list.el)->size_of_one_elem, ar.get_ptr(list.el)->data);
 		Resize<TS>::resize(list.tail, dev, ar, heap, rnv, w, h);
 	}
 };
@@ -890,7 +881,7 @@ struct Resize<t_list_cons<true, U, CP, buffer_2d, TS>> {
 template<bool U, bool CP, typename TS>
 struct Resize<t_list_cons<true, U, CP, buffer_1d, TS>> {
 	static func resize(t_list_cons<true, U, CP, buffer_1d, TS> list, ID3D12Device2* dev, memory_arena ar, descriptor_heap *heap, arena_array<resource_and_view> *rnv, u32 w, u32 h)-> void {
-		ar.get_ptr(list.el)->recreate(dev, ar, heap, rnv, w * h, ar.get_ptr(list.el)->size_of_one_elem, nullptr);
+		ar.get_ptr(list.el)->recreate(dev, ar, heap, rnv, w * h, ar.get_ptr(list.el)->size_of_one_elem, ar.get_ptr(list.el)->data);
 		Resize<TS>::resize(list.tail, dev, ar, heap, rnv, w, h);
 	}
 };
@@ -927,15 +918,15 @@ struct Resize<t_list_nil> {
 
 template<typename T>
 struct Finalize {
-	static func finalize (T list, dx_context *ctx, memory_arena *arena, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void { static_assert(!1, "");};
+	static func finalize (T list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void { static_assert(!1, "");};
 };
 
 template<bool B, bool U, bool CP, typename TS>
 struct Finalize<t_list_cons<B, U, CP, texture_2d, TS>> {
-	static func finalize(t_list_cons<B, U, CP, texture_2d, TS> list, dx_context *ctx, memory_arena *arena, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
+	static func finalize(t_list_cons<B, U, CP, texture_2d, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
 
 		texture_2d *texture_dsc = arena->get_ptr(list.el);
-		resource_and_view *r_n_v = &ctx->mem_arena.get_array(ctx->resources_and_views)[texture_dsc->res_and_view_idx];
+		resource_and_view *r_n_v = &arena->get_array(resources_and_views)[texture_dsc->res_and_view_idx];
 		u32 width = GET_WIDTH(texture_dsc->width_and_height);
 		u32 height = GET_HEIGHT(texture_dsc->width_and_height);
 	
@@ -971,16 +962,16 @@ struct Finalize<t_list_cons<B, U, CP, texture_2d, TS>> {
 			r_n_v->view = create_srv_descriptor_view(ctx->g_device, texture_dsc->heap_idx, heap->addr, inc_size, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_SRV_DIMENSION_TEXTURE2D, r_n_v->addr);
 		}
 
-		Finalize<TS>::finalize(list.tail, ctx, arena, cmd_list, heap);
+		Finalize<TS>::finalize(list.tail, ctx, arena, resources_and_views, cmd_list, heap);
 	}
 };
 
 template<bool B, bool U, bool CP, typename TS>
 struct Finalize<t_list_cons<B, U, CP, buffer_vtex, TS>> {
-	static func finalize(t_list_cons<B, U, CP, buffer_vtex, TS> list, dx_context *ctx, memory_arena *arena, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
+	static func finalize(t_list_cons<B, U, CP, buffer_vtex, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
 
 		buffer_vtex *buffer_desc = arena->get_ptr(list.el);
-		resource_and_view *r_n_v = &ctx->mem_arena.get_array(ctx->resources_and_views)[buffer_desc->res_and_view_idx];
+		resource_and_view *r_n_v = &arena->get_array(resources_and_views)[buffer_desc->res_and_view_idx];
 
 		auto addr4 = CD3DX12_RESOURCE_BARRIER::Transition(r_n_v->addr, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER/* | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE*/);
 		cmd_list->CopyBufferRegion(r_n_v->addr, 0, buffer_desc->stg_buff, 0, buffer_desc->size_of_data);
@@ -991,16 +982,16 @@ struct Finalize<t_list_cons<B, U, CP, buffer_vtex, TS>> {
 		buffer_desc->view.StrideInBytes		= sizeof(vertex);
 		buffer_desc->view.SizeInBytes		= buffer_desc->size_of_data;
 
-		Finalize<TS>::finalize(list.tail, ctx, arena, cmd_list, heap);
+		Finalize<TS>::finalize(list.tail, ctx, arena, resources_and_views, cmd_list, heap);
 	}
 };
 
 template<bool B, bool U, bool CP, typename TS>
 struct Finalize<t_list_cons<B, U, CP, buffer_idex, TS>> {
-	static func finalize(t_list_cons<B, U, CP, buffer_idex, TS> list, dx_context *ctx, memory_arena *arena, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
+	static func finalize(t_list_cons<B, U, CP, buffer_idex, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
 
 		buffer_idex *buffer_desc = arena->get_ptr(list.el);
-		resource_and_view *r_n_v = &ctx->mem_arena.get_array(ctx->resources_and_views)[buffer_desc->res_and_view_idx];
+		resource_and_view *r_n_v = &arena->get_array(resources_and_views)[buffer_desc->res_and_view_idx];
 
 		auto addr4 = CD3DX12_RESOURCE_BARRIER::Transition(r_n_v->addr, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDEX_BUFFER/* | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE*/);
 		cmd_list->CopyBufferRegion(r_n_v->addr, 0, buffer_desc->stg_buff, 0, buffer_desc->size_of_data);
@@ -1011,54 +1002,54 @@ struct Finalize<t_list_cons<B, U, CP, buffer_idex, TS>> {
 		buffer_desc->view.Format 			= DXGI_FORMAT_R32_UINT;
 		buffer_desc->view.SizeInBytes 		= buffer_desc->size_of_data;
 
-		Finalize<TS>::finalize(list.tail, ctx, arena, cmd_list, heap);
+		Finalize<TS>::finalize(list.tail, ctx, arena, resources_and_views, cmd_list, heap);
 	}
 };
 
 template<bool B, bool U, bool CP, typename T, typename TS>
 struct Finalize<t_list_cons<B, U, CP, T, TS>> {
-	static func finalize(t_list_cons<B, U, CP, T, TS> list, dx_context *ctx, memory_arena *arena, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
-		Finalize<TS>::finalize(list.tail, ctx, arena, cmd_list, heap);
+	static func finalize(t_list_cons<B, U, CP, T, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views,ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
+		Finalize<TS>::finalize(list.tail, ctx, arena, resources_and_views, cmd_list, heap);
 	}
 };
 
 template<>
 struct Finalize<t_list_nil> {
-	static func finalize(t_list_nil list, dx_context *ctx, memory_arena *arena, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
+	static func finalize(t_list_nil list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
 		return;
 	}
 };
 
 template<typename T>
 struct CTRT {
-	static func copy_to_render_target (T list, dx_context *ctx, memory_arena *arena, ID3D12GraphicsCommandList *cmd_list) -> void { static_assert(!1, "");};
+	static func copy_to_render_target (T list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void { static_assert(!1, "");};
 };
 
 template<bool B, bool U, typename TS>
 struct CTRT<t_list_cons<B, U, true, render_target2d, TS>> {
-	static func copy_to_render_target(t_list_cons<B, U, true, render_target2d, TS> list, dx_context *ctx, memory_arena *arena, ID3D12GraphicsCommandList *cmd_list) -> void {
+	static func copy_to_render_target(t_list_cons<B, U, true, render_target2d, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
 		render_target2d *rt2_desc = arena->get_ptr(list.el);
-		resource_and_view *r_n_v = &ctx->mem_arena.get_array(ctx->resources_and_views)[rt2_desc->res_and_view_idx];
+		resource_and_view *r_n_v = &arena->get_array(resources_and_views)[rt2_desc->res_and_view_idx];
 
 		ID3D12Resource* screen_buffer = ctx->g_back_buffers[ctx->g_frame_index];
 		record_resource_barrier(1,  barrier_transition(screen_buffer, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_DEST), cmd_list);
 		cmd_list->CopyResource(screen_buffer, r_n_v->addr);
 		record_resource_barrier(1,  barrier_transition(screen_buffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PRESENT), cmd_list);
 
-		CTRT<TS>::copy_to_render_target(list.tail, ctx, arena, cmd_list);
+		CTRT<TS>::copy_to_render_target(list.tail, ctx, arena, resources_and_views, cmd_list);
 	}
 };
 
 template<bool B, bool U, bool CP, typename T, typename TS>
 struct CTRT<t_list_cons<B, U, CP, T, TS>> {
-	static func copy_to_render_target(t_list_cons<B, U, CP, T, TS> list, dx_context *ctx, memory_arena *arena, ID3D12GraphicsCommandList *cmd_list) -> void {
-		CTRT<TS>::copy_to_render_target(list.tail, ctx, arena, cmd_list);
+	static func copy_to_render_target(t_list_cons<B, U, CP, T, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
+		CTRT<TS>::copy_to_render_target(list.tail, ctx, arena, resources_and_views, cmd_list);
 	}
 };
 
 template<>
 struct CTRT<t_list_nil> {
-	static func copy_to_render_target(t_list_nil list, dx_context *ctx, memory_arena *arena, ID3D12GraphicsCommandList *cmd_list) -> void {
+	static func copy_to_render_target(t_list_nil list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
 		return;
 	}
 };
@@ -1097,7 +1088,7 @@ inline func graphic_pipeline::create_root_sig(binding<T> bindings, ID3D12Device2
 }
 
 template<typename T>
-inline func graphic_pipeline::finalize(binding<T> bindings, dx_context *ctx, memory_arena *arena, ID3D12Device2* device, descriptor_heap *heap) -> graphic_pipeline {
+inline func graphic_pipeline::finalize(binding<T> bindings, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12Device2* device, descriptor_heap *heap) -> graphic_pipeline {
 
 #if DEBUG
 	// Enable better shader debugging with the graphics debugging tools.
@@ -1144,7 +1135,7 @@ inline func graphic_pipeline::finalize(binding<T> bindings, dx_context *ctx, mem
 	auto cmd_list = create_command_list<ID3D12GraphicsCommandList>(ctx, D3D12_COMMAND_LIST_TYPE_DIRECT, ctx->g_pipeline_state, false);
 	cmd_list->SetName(L"Uload to GPU list");
 
-	Finalize<T>::finalize(bindings.data, ctx, &ctx->mem_arena, cmd_list, heap);
+	Finalize<T>::finalize(bindings.data, ctx, arena, resources_and_views, cmd_list, heap);
 
 	// Close the command list and execute it to begin the initial GPU setup.
     ThrowIfFailed(cmd_list->Close());
@@ -1172,13 +1163,98 @@ inline func graphic_pipeline::finalize(binding<T> bindings, dx_context *ctx, mem
 	return *this;
 }
 
-inline func buffer_cbuf::create (ID3D12Device2 *device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 register_index) -> buffer_cbuf {
+template<typename T>
+inline func compute_pipeline::create_root_sig (binding<T> bindings, ID3D12Device2 *device, memory_arena *arena) -> compute_pipeline {
+
+	this->number_of_resources = bindings.data.get_size();
+	
+	CD3DX12_DESCRIPTOR_RANGE1 ranges[this->number_of_resources];
+
+	bool is_texture[bindings.data.get_size()];
+	
+	CRS<T>::create_root_sig(bindings.data, 0, is_texture, ranges, arena);
+		
+	CD3DX12_ROOT_PARAMETER1 root_parameters[this->number_of_resources];
+	for(u32 i = 0; i < this->number_of_resources; ++i) {
+		root_parameters[i].InitAsDescriptorTable(1, &ranges[i], D3D12_SHADER_VISIBILITY_ALL);
+	}
+	// root_parameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_PIXEL);
+	// root_parameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_ALL);
+
+	CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC root_signature_desc = 
+	create_root_signature_desc(root_parameters, this->number_of_resources, pixel_default_sampler_desc(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    ID3DBlob* versioned_signature 	= serialize_versioned_root_signature(root_signature_desc, create_feature_data_root_signature(device));
+    this->root_signature 			= create_root_signature(device, versioned_signature);
+	this->root_signature->SetName(L"COMPUTE ROOT SIGN");
+	return *this;
+}
+
+inline func compute_pipeline::bind_shader (ID3DBlob* shader) -> compute_pipeline {
+	this->shader_blob = shader;
+	return *this;
+}
+
+template<typename T>
+inline func compute_pipeline::finalize (binding<T> bindings, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resource_and_view, ID3D12Device2* device, descriptor_heap *heap) -> compute_pipeline {
+	// Describe and create the graphics pipeline state object (PSO).
+	D3D12_BLEND_DESC blendDesc = {};
+	blendDesc.RenderTarget[0].BlendEnable = TRUE;
+	blendDesc.RenderTarget[0].SrcBlend =
+	blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_SRC_ALPHA;
+	blendDesc.RenderTarget[0].DestBlend =
+	blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
+	blendDesc.RenderTarget[0].BlendOp =
+	blendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+	blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+    D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
+    psoDesc.pRootSignature = this->root_signature;
+    psoDesc.CS = CD3DX12_SHADER_BYTECODE(this->shader_blob);
+    psoDesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
+	psoDesc.NodeMask = 0;
+
+    ThrowIfFailed(device->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&this->state)));
+
+	auto cmd_list = create_command_list<ID3D12GraphicsCommandList>(ctx, D3D12_COMMAND_LIST_TYPE_DIRECT, ctx->g_pipeline_state, false);
+	cmd_list->SetName(L"Uload to GPU list");
+
+	Finalize<T>::finalize(bindings.data, ctx, arena, resource_and_view, cmd_list, heap);
+
+	// Close the command list and execute it to begin the initial GPU setup.
+    ThrowIfFailed(cmd_list->Close());
+    ID3D12CommandList* ppCommandLists[] = { cmd_list };
+    ctx->g_command_queue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
+
+    // Create synchronization objects and wait until assets have been uploaded to the GPU.
+    {
+        ThrowIfFailed(ctx->g_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&ctx->g_fence)));
+        ctx->g_frame_fence_values[ctx->g_frame_index]++;
+
+        // Create an event handle to use for frame synchronization.
+        ctx->g_fence_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+        if (ctx->g_fence_event == nullptr)
+        {
+            ThrowIfFailed(HRESULT_FROM_WIN32(GetLastError()));
+        }
+
+        // Wait for the command list to execute; we are reusing the same command 
+        // list in our main loop but for now, we just want to wait for setup to 
+        // complete before continuing.
+		wait_for_gpu(ctx->g_command_queue, ctx->g_fence, ctx->g_fence_event, &ctx->g_frame_fence_values[ctx->g_frame_index]);
+    }
+
+	return *this;
+}
+
+inline func buffer_cbuf::create (ID3D12Device2 *device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u8* data, u32 register_index) -> buffer_cbuf {
 	buffer_cbuf result = {};
 
 	u32 size_of_cbuffer = sizeof(c_buffer); // NOTE(DH): IMPORTANT, this is always will be 256 bytes!
 	result.register_index = register_index;
 	result.res_and_view_idx = r_n_v->count++;
 	result.heap_idx = heap->next_resource_idx++;
+	result.data = data;
 
 	resource_and_view* res_n_view = arena.load_ptr_by_idx(r_n_v->ptr, result.res_and_view_idx);
 	
@@ -1329,7 +1405,7 @@ inline func buffer_vtex::create (ID3D12Device2* device, memory_arena arena, desc
 	return result;
 }
 
-inline func buffer_idex::create	(ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u8* data, u32 size_of_data, u32 register_index) -> buffer_idex {
+inline func buffer_idex::create	(ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u8* data, u32 size_of_data, u32 instance_count, u32 register_index) -> buffer_idex {
 	buffer_idex result = {};
 
 	result.register_index = register_index;
@@ -1338,6 +1414,7 @@ inline func buffer_idex::create	(ID3D12Device2* device, memory_arena arena, desc
 	result.data = data;
 	result.res_and_view_idx = r_n_v->count;
 	result.size_of_one_elem = sizeof(u32);
+	result.instance_count = instance_count;
 
 	resource_and_view* res_n_view = arena.load_ptr_by_idx(r_n_v->ptr, r_n_v->count++);
 
@@ -1402,6 +1479,19 @@ inline func buffer_1d::recreate	(ID3D12Device2* device, memory_arena arena, desc
 	this->size_of_data = count * size_of_one_elem;
 
 	resource_and_view* res_n_view = arena.load_ptr_by_idx(r_n_v->ptr, this->res_and_view_idx);
+
+	if(data) {
+		auto heap_properties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
+		auto resource_desc = CD3DX12_RESOURCE_DESC::Buffer(this->size_of_data);
+		ThrowIfFailed(device->CreateCommittedResource(&heap_properties,D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&this->stg_buff)));
+		
+		// Copy the index data to the index buffer.
+		u8* p_idx_data_begin;
+		CD3DX12_RANGE readRange(0, 0);        // We do not intend to read from this resource on the CPU.
+		ThrowIfFailed(this->stg_buff->Map(0, &readRange, reinterpret_cast<void**>(&p_idx_data_begin)));
+		memcpy(p_idx_data_begin, data, this->size_of_data);
+		this->stg_buff->Unmap(0, nullptr);
+	}
 	
 	D3D12_TEXTURE_LAYOUT texture_layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 	D3D12_RESOURCE_FLAGS resource_flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;

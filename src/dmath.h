@@ -1371,6 +1371,19 @@ operator*(mat4 A, v4 B)
 	return Result;
 }
 
+inline v4
+operator*(v4 A, mat4 B)
+{
+	v4 Result;
+	
+	Result.x = A.x * B.Value1_1 + A.y * B.Value2_1 * A.z * B.Value3_1 + A.w * B.Value4_1;
+	Result.y = A.x * B.Value1_2 + A.y * B.Value2_2 * A.z * B.Value3_2 + A.w * B.Value4_2;
+	Result.z = A.x * B.Value1_3 + A.y * B.Value2_3 * A.z * B.Value3_3 + A.w * B.Value4_3;
+	Result.w = A.x * B.Value1_4 + A.y * B.Value2_4 * A.z * B.Value3_4 + A.w * B.Value4_4;
+	
+	return Result;
+}
+
 inline mat4
 operator*(mat4 A, mat4 B)
 {
@@ -1397,7 +1410,16 @@ operator*(mat4 A, mat4 B)
 	return Result;
 }
 
-inline func create_ortho_matrix(float left, float right, float bottom, float top, float nearZ, float farZ) -> mat4 {
+
+inline func create_ortho_matrix(float size, float aspect_ratio, float left, float right, float bottom, float top, float nearZ, float farZ) -> mat4 {
+	left *= size;
+	right *= size;
+	bottom *= size;
+	top *= size;
+
+	left *= aspect_ratio;
+	right *= aspect_ratio;
+	
 	mat4 result = Identity();
 	result.Value1_1 = 2.0 / (right - left);
 	result.Value2_2 = 2.0 / (top - bottom);
@@ -1441,5 +1463,13 @@ inline func screen_to_ndc(u32 width, u32 height) -> mat4 {
 	mat4 result = Identity();
 	result.Value1_1 = 2.0f / width; result.Value1_4 = -1.0f;
 	result.Value2_2 = 2.0f / height; result.Value2_4 = -1.0f;
+	return result;
+}
+
+inline func ndc_to_screen(v2 pos, u32 width, u32 height) -> v2 {
+	v2 result = {};
+	f32 aspect = (f32)width / (f32)height;
+	result.x = -((1.0f - pos.x) / 2.0f) * width;
+	result.y = -((1.0f - pos.y) / 2.0f) * height * aspect;
 	return result;
 }

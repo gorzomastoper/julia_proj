@@ -381,11 +381,13 @@ void resize(dx_context *context, u32 width, u32 height)
 	auto render_pass_01 = context->mem_arena.load_by_idx<render_pass>				(context->compute_stage.render_passes.ptr, 0);
 	auto pipeline 		= context->mem_arena.get_ptr								(render_pass_01.curr_pipeline_c);
 
-	pipeline->resize(context, &context->compute_stage_heap, &context->mem_arena, width, height, pipeline->bindings);
+	pipeline->resize(context, &context->compute_stage_heap, &context->mem_arena, context->resources_and_views, width, height, pipeline->bindings);
 
-	mat4 transition = translation_matrix(V3(-1.0, -1.0, 0.0));
+	// mat4 model_matrix = translation_matrix(V3(-1.0, -1.0, 0.0));
+	mat4 model_matrix = translation_matrix(V3(0.0, 0.0, 0.0));
 	mat4 view_matrix = look_at_matrix(V3(0.0f, 0.0f, 1.0f), V3(0, 0, 0), V3(0, 1, 0));
-	context->common_cbuff_data.MVP_matrix = create_ortho_matrix(0.0f, g_ClientWidth, g_ClientHeight, 0.0f, 0.0f, 0.0f) * view_matrix;// * transition;
+	context->common_cbuff_data.MVP_matrix = create_ortho_matrix(5.0f, context->aspect_ratio, 1.0f, -1.0, -1.0, 1.0f, 0.0f, 0.0f) * view_matrix * model_matrix;
+	// context->common_cbuff_data.MVP_matrix = create_ortho_matrix(1.0f, 0.0f, g_ClientWidth, g_ClientHeight, 0.0f, 0.0f, 0.0f) * view_matrix * model_matrix;
 
 	//Finally resizing the SwapChain and relative Descriptor Heap
 	DXGI_SWAP_CHAIN_DESC swapChainDesc = {};
@@ -664,7 +666,7 @@ dx_context init_dx(HWND hwnd)
 	result.zmin 		= 0.1f;
 	result.zmax 		= 100.0f;
 
-	result.common_cbuff_data.MVP_matrix = create_ortho_matrix(0, g_ClientWidth, g_ClientHeight, 0, 0.1f, 1000.0f);
+	result.common_cbuff_data.MVP_matrix = create_ortho_matrix(1.0f, 1.0f, 0, g_ClientWidth, g_ClientHeight, 0, 0.1f, 1000.0f);
 
 	//Set aspect ratio
 	result.aspect_ratio = (f32)g_ClientWidth / (f32)g_ClientHeight;
@@ -704,7 +706,7 @@ dx_context init_dx(HWND hwnd)
 
 		render_target2d render_target = render_target2d::create (result.g_device, result.mem_arena, &result.compute_stage_heap, &result.resources_and_views, result.viewport.Width, result.viewport.Height, 0);
 		buffer_1d	hist_buffer = buffer_1d::create (result.g_device, result.mem_arena, &result.compute_stage_heap, &result.resources_and_views, result.viewport.Width * result.viewport.Height, sizeof(u32), nullptr, 1);
-		buffer_cbuf	cbuff = buffer_cbuf::create (result.g_device, result.mem_arena, &result.compute_stage_heap, &result.resources_and_views, 0);
+		buffer_cbuf	cbuff = buffer_cbuf::create (result.g_device, result.mem_arena, &result.compute_stage_heap, &result.resources_and_views, (u8*)&result.common_cbuff_data, 0);
 
 		auto binds = mk_bindings()
 			.bind_buffer<true, false, true>(result.mem_arena.push_data(render_target))
@@ -714,10 +716,10 @@ dx_context init_dx(HWND hwnd)
 		auto binds_ar_ptr = result.mem_arena.push_data(binds);
 		auto binds_ptr = *(arena_ptr<void>*)(&binds_ar_ptr);
 
-		auto resize = [](dx_context *ctx, descriptor_heap* heap, memory_arena *arena, u32 width, u32 height, arena_ptr<void> bindings) {
+		auto resize = [](dx_context *ctx, descriptor_heap* heap, memory_arena *arena, arena_array<resource_and_view> resources_and_views, u32 width, u32 height, arena_ptr<void> bindings) {
 			arena_ptr<decltype(binds)> bnds_ptr = *(arena_ptr<decltype(binds)>*)&bindings;
 			auto bnds = ctx->mem_arena.get_ptr(bnds_ptr);
-			Resize<decltype(binds)::BUF_TS_U>::resize(bnds->data, ctx->g_device, ctx->mem_arena, heap, &ctx->resources_and_views, width, height); 
+			Resize<decltype(binds)::BUF_TS_U>::resize(bnds->data, ctx->g_device, ctx->mem_arena, heap, &resources_and_views, width, height); 
 		};
 
 		auto generate_binding_table = [](dx_context *ctx, descriptor_heap* heap, memory_arena *arena, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings) {
@@ -726,29 +728,29 @@ dx_context init_dx(HWND hwnd)
 			GCBC<decltype(binds)::BUF_TS_U>::bind_root_sig_table(bnds->data, 0, cmd_list, ctx->g_device, heap->addr, &ctx->mem_arena);
 		};
 
-		auto update = [](dx_context *ctx, descriptor_heap* heap, memory_arena *arena, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings) {
+		auto update = [](dx_context *ctx, descriptor_heap* heap, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings) {
 			arena_ptr<decltype(binds)> bnds_ptr = *(arena_ptr<decltype(binds)>*)&bindings;
 			auto bnds = ctx->mem_arena.get_ptr(bnds_ptr);
-			Update<decltype(binds)::BUF_TS_U>::update(bnds->data, ctx, &ctx->mem_arena, cmd_list);
+			Update<decltype(binds)::BUF_TS_U>::update(bnds->data, ctx, &ctx->mem_arena, resources_and_views, cmd_list);
 		};
 
-		auto copy_to_render_target = [](dx_context *ctx, memory_arena *arena, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings) {
+		auto copy_to_render_target = [](dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings) {
 			arena_ptr<decltype(binds)> bnds_ptr = *(arena_ptr<decltype(binds)>*)&bindings;
 			auto bnds = ctx->mem_arena.get_ptr(bnds_ptr);
-			CTRT<decltype(binds)::BUF_TS_U>::copy_to_render_target(bnds->data, ctx, &ctx->mem_arena, cmd_list);
+			CTRT<decltype(binds)::BUF_TS_U>::copy_to_render_target(bnds->data, ctx, &ctx->mem_arena, resources_and_views, cmd_list);
 		};
 
 		compute_pipeline compute_pipeline_pass_01 = 
 		compute_pipeline::init__(binds_ptr, resize, generate_binding_table, update, copy_to_render_target)
 			.bind_shader		(shader_for_pass_01)
 			.create_root_sig	(binds, result.g_device, &result.mem_arena)
-			.finalize			(binds, &result, &result.mem_arena, result.g_device, &result.compute_stage_heap);
+			.finalize			(binds, &result, &result.mem_arena, result.resources_and_views, result.g_device, &result.compute_stage_heap);
 
 		compute_pipeline compute_pipeline_pass_02 = 
 		compute_pipeline::init__(binds_ptr, resize, generate_binding_table, update, copy_to_render_target)
 			.bind_shader		(shader_for_pass_02)
 			.create_root_sig	(binds, result.g_device, &result.mem_arena)
-			.finalize			(binds, &result, &result.mem_arena, result.g_device, &result.compute_stage_heap);
+			.finalize			(binds, &result, &result.mem_arena, result.resources_and_views, result.g_device, &result.compute_stage_heap);
 
 		result.compute_stage = 
 		rendering_stage::init__	(&result.mem_arena, 2)
@@ -760,90 +762,6 @@ dx_context init_dx(HWND hwnd)
 	result.g_is_initialized = true;
 
 	return result;
-}
-
-template<typename T>
-inline func compute_pipeline::create_root_sig (binding<T> bindings, ID3D12Device2 *device, memory_arena *arena) -> compute_pipeline {
-
-	this->number_of_resources = bindings.data.get_size();
-	
-	CD3DX12_DESCRIPTOR_RANGE1 ranges[this->number_of_resources];
-
-	bool is_texture[bindings.data.get_size()];
-	
-	CRS<T>::create_root_sig(bindings.data, 0, is_texture, ranges, arena);
-		
-	CD3DX12_ROOT_PARAMETER1 root_parameters[this->number_of_resources];
-	for(u32 i = 0; i < this->number_of_resources; ++i) {
-		root_parameters[i].InitAsDescriptorTable(1, &ranges[i], D3D12_SHADER_VISIBILITY_ALL);
-	}
-	// root_parameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_PIXEL);
-	// root_parameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_ALL);
-
-	CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC root_signature_desc = 
-	create_root_signature_desc(root_parameters, this->number_of_resources, pixel_default_sampler_desc(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
-
-    ID3DBlob* versioned_signature 	= serialize_versioned_root_signature(root_signature_desc, create_feature_data_root_signature(device));
-    this->root_signature 			= create_root_signature(device, versioned_signature);
-	this->root_signature->SetName(L"COMPUTE ROOT SIGN");
-	return *this;
-}
-
-inline func compute_pipeline::bind_shader (ID3DBlob* shader) -> compute_pipeline {
-	this->shader_blob = shader;
-	return *this;
-}
-
-template<typename T>
-inline func compute_pipeline::finalize (binding<T> bindings, dx_context *ctx, memory_arena *arena,ID3D12Device2* device, descriptor_heap *heap) -> compute_pipeline {
-	// Describe and create the graphics pipeline state object (PSO).
-	D3D12_BLEND_DESC blendDesc = {};
-	blendDesc.RenderTarget[0].BlendEnable = TRUE;
-	blendDesc.RenderTarget[0].SrcBlend =
-	blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_SRC_ALPHA;
-	blendDesc.RenderTarget[0].DestBlend =
-	blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
-	blendDesc.RenderTarget[0].BlendOp =
-	blendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
-	blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-
-    D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
-    psoDesc.pRootSignature = this->root_signature;
-    psoDesc.CS = CD3DX12_SHADER_BYTECODE(this->shader_blob);
-    psoDesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
-	psoDesc.NodeMask = 0;
-
-    ThrowIfFailed(device->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&this->state)));
-
-	auto cmd_list = create_command_list<ID3D12GraphicsCommandList>(ctx, D3D12_COMMAND_LIST_TYPE_DIRECT, ctx->g_pipeline_state, false);
-	cmd_list->SetName(L"Uload to GPU list");
-
-	Finalize<T>::finalize(bindings.data, ctx, arena, cmd_list, heap);
-
-	// Close the command list and execute it to begin the initial GPU setup.
-    ThrowIfFailed(cmd_list->Close());
-    ID3D12CommandList* ppCommandLists[] = { cmd_list };
-    ctx->g_command_queue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
-
-    // Create synchronization objects and wait until assets have been uploaded to the GPU.
-    {
-        ThrowIfFailed(ctx->g_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&ctx->g_fence)));
-        ctx->g_frame_fence_values[ctx->g_frame_index]++;
-
-        // Create an event handle to use for frame synchronization.
-        ctx->g_fence_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-        if (ctx->g_fence_event == nullptr)
-        {
-            ThrowIfFailed(HRESULT_FROM_WIN32(GetLastError()));
-        }
-
-        // Wait for the command list to execute; we are reusing the same command 
-        // list in our main loop but for now, we just want to wait for setup to 
-        // complete before continuing.
-		wait_for_gpu(ctx->g_command_queue, ctx->g_fence, ctx->g_fence_event, &ctx->g_frame_fence_values[ctx->g_frame_index]);
-    }
-
-	return *this;
 }
 
 void update(dx_context *ctx)
@@ -867,7 +785,7 @@ void update(dx_context *ctx)
 	render_pass			pass 		= ctx->mem_arena.load_by_idx<render_pass>(ctx->compute_stage.render_passes.ptr, 0);
 	compute_pipeline 	pipeline 	= ctx->mem_arena.load(pass.curr_pipeline_c);
 
-	pipeline.update(ctx, &ctx->compute_stage_heap, &ctx->mem_arena, ctx->g_compute_command_list, pipeline.bindings);
+	pipeline.update(ctx, &ctx->compute_stage_heap, &ctx->mem_arena, ctx->resources_and_views, ctx->g_compute_command_list, pipeline.bindings);
 }
 
 void recompile_shader(dx_context *ctx, rendering_stage rndr_stage)
@@ -992,40 +910,6 @@ void imgui_draw_canvas(dx_context *ctx)
 	ImGui::End();
 }
 
-void imgui_generate_commands(dx_context *ctx)
-{
-	{
-		bool active_tool = true;
-		ImGui::Begin("Core Menu", &ctx->g_is_menu_active, ImGuiWindowFlags_MenuBar);
-		if(ImGui::BeginMenuBar())
-		{
-			if(ImGui::BeginMenu("File"))
-			{
-				if(ImGui::MenuItem("Open", "Ctrl+O")) {}
-				if(ImGui::MenuItem("Save", "Ctrl+S")) {}
-				if(ImGui::MenuItem("Exit", "Ctrl+W")) { ctx->g_is_quitting = true;}
-				ImGui::EndMenu();
-			}
-			ImGui::EndMenuBar();
-		}
-
-		ImGui::Text("This is some useful text.");
-		ImGui::Text("Memory used by render backend: %u of %u kb", u32(ctx->mem_arena.used / Kilobytes(1)), u32(ctx->mem_arena.size / Kilobytes(1)));
-		ImGui::Text("Time Elapsed: %f ", ctx->time_elapsed);
-		ImGui::SliderFloat("Speed multiplier", &ctx->speed_multiplier, 0.1f, 100.0f);
-		if (ImGui::Button("Button")) 
-			printf("Luca Abelle");
-
-		if(ImGui::Button("Recompile Shader"))
-			ctx->g_recompile_shader = true;
-
-		ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 255, 255));
-		ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
-		ImGui::PopStyleColor();
-		ImGui::End();
-	}
-}
-
 void set_render_target
 (
 	ID3D12GraphicsCommandList* cmd_list,
@@ -1123,19 +1007,20 @@ void present(dx_context *context, IDXGISwapChain4* swap_chain)
 	ThrowIfFailed(swap_chain->Present(syncInterval, presentFlags));
 }
 
-ID3D12GraphicsCommandList* generate_imgui_command_buffer(dx_context *context)
-{
-	//NOTE(DH): Here is the IMGUI commands generated
+func start_imgui_frame () -> void {
 	ImGui_ImplDX12_NewFrame();
 	ImGui_ImplWin32_NewFrame();
 	ImGui::NewFrame();
-	ImGui::ShowDemoWindow();
+}
 
-	imgui_draw_canvas(context);
-	imgui_generate_commands(context);
-	
+func finish_imgui_frame () -> void {
 	ImGui::Render();
 	ImGui::UpdatePlatformWindows();
+}
+
+ID3D12GraphicsCommandList* generate_imgui_command_buffer(dx_context *context)
+{
+	//NOTE(DH): Here is the IMGUI commands generated
 
 	auto imgui_cmd_allocator = get_command_allocator(context->g_frame_index, context->g_imgui_command_allocators);
 
@@ -1334,7 +1219,7 @@ ID3D12GraphicsCommandList* generate_compute_command_buffer(dx_context *ctx, u32 
 	ctx->g_compute_command_list->Dispatch(dispatch_X, dispatch_y, 1);
 
 	// 4.) Copy result from back buffer to screen
-	c_p_1.copy_to_screen_rt(ctx, &ctx->mem_arena, ctx->g_compute_command_list, c_p_1.bindings);
+	c_p_1.copy_to_screen_rt(ctx, &ctx->mem_arena, ctx->resources_and_views, ctx->g_compute_command_list, c_p_1.bindings);
 
 	//Finally executing the filled Command List into the Command Queue
 	return ctx->g_compute_command_list;

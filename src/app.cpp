@@ -49,6 +49,8 @@ void* allocate_memory(void* base, size_t size) { return VirtualAlloc(base, size,
 void* allocate_memory(void* base, size_t size) { return malloc(size);}
 #endif
 
+#define VAR_NAME(x) #x
+
 //TODO(DH): This is temporary stuff, vaporize immidietly when normal memory arena will be created
 // Simple free list based allocator
 struct ExampleDescriptorHeapAllocator
@@ -188,7 +190,10 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 			case WM_PAINT: {
 					// if(!global_pause) 
 					{
+						u32 width = directx_context.viewport.Width;
+						u32 height = directx_context.viewport.Height;
 						particle_simulation* sim_data = (particle_simulation*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+						directx_context.common_cbuff_data.mouse_pos.xy = sim_data->bounds_size;
 
 						f32 current_time = GetCurrentTime();
 						f32 delta_time = current_time - last_time;
@@ -197,17 +202,68 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 						directx_context.dt_for_frame = delta_time * 0.001;
 						update(&directx_context);
 						
-						render_pass			pass		= directx_context.mem_arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 0);
-						graphic_pipeline 	pipeline 	= directx_context.mem_arena.load(pass.curr_pipeline_g);
+						render_pass			graph_pass		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 0);
+						render_pass			comp_pass		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 1);
+						graphic_pipeline 	graph_pipeline 	= sim_data->arena.load(graph_pass.curr_pipeline_g);
+						compute_pipeline	compute_pipeline = sim_data->arena.load(comp_pass.curr_pipeline_c);
 
-						sim_data->update_particles(directx_context.dt_for_frame);
+						// sim_data->update_particles(directx_context.dt_for_frame);
+						sim_data->simulation_step(directx_context.dt_for_frame, width, height);
 
-						// auto triangle_cmd_list = generate_command_buffer(&directx_context);
+						start_imgui_frame();
+
+						auto gen_ui = [sim_data, width, height](dx_context *ctx) {
+							ImGui::ShowDemoWindow();
+
+							bool active_tool = true;
+							ImGui::Begin("Core Menu", &ctx->g_is_menu_active, ImGuiWindowFlags_MenuBar);
+							if(ImGui::BeginMenuBar())
+							{
+								if(ImGui::BeginMenu("File"))
+								{
+									if(ImGui::MenuItem("Open", "Ctrl+O")) {}
+									if(ImGui::MenuItem("Save", "Ctrl+S")) {}
+									if(ImGui::MenuItem("Exit", "Ctrl+W")) { ctx->g_is_quitting = true;}
+									ImGui::EndMenu();
+								}
+								ImGui::EndMenuBar();
+							}
+					
+							ImGui::Text("This is some useful text.");
+							ImGui::Text("Memory used by render backend: %u of %u kb", u32(ctx->mem_arena.used / Kilobytes(1)), u32(ctx->mem_arena.size / Kilobytes(1)));
+							ImGui::Text("Time Elapsed: %f ", ctx->time_elapsed);
+							ImGui::SliderFloat("Speed multiplier", &ctx->speed_multiplier, 0.1f, 100.0f);
+
+							ImGui::SliderFloat(VAR_NAME(sim_data->gravity), &sim_data->gravity, 0.1f, 10.0f);
+							ImGui::SliderFloat(VAR_NAME(sim_data->collision_damping), &sim_data->collision_damping, 0.01f, 2.0f);
+							ImGui::SliderFloat(VAR_NAME(sim_data->pressure_multiplier), &sim_data->pressure_multiplier, 0.01f, 500.0f);
+							ImGui::SliderFloat(VAR_NAME(sim_data->target_density), &sim_data->target_density, 0.01f, 10.0f);
+							ImGui::SliderFloat(VAR_NAME(sim_data->bounds_size.x), &sim_data->bounds_size.x, 1.0f, (f32)width);
+							ImGui::SliderFloat(VAR_NAME(sim_data->bounds_size.y), &sim_data->bounds_size.y, 1.0f, (f32)height);
+							ImGui::SliderFloat(VAR_NAME(sim_data->info_for_cshader.smoothing_radius), &sim_data->info_for_cshader.smoothing_radius, 0.0f, 10.0f);
+					
+							if(ImGui::Button("Recompile Shader"))
+								ctx->g_recompile_shader = true;
+					
+							ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 255, 255));
+							ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+							ImGui::PopStyleColor();
+							ImGui::End();
+
+							imgui_draw_canvas(ctx);
+						};
+
+						gen_ui(&directx_context);
+
+						finish_imgui_frame();
+
 						// auto compute_cmd_list = generate_compute_command_buffer(&directx_context, directx_context.viewport.Width, directx_context.viewport.Height);
-						auto draw_circles 	= generate_command_buffer(&directx_context, directx_context.mem_arena, sim_data->cmd_list, sim_data->simulation_desc_heap, sim_data->rndr_stage);
+						auto draw_with_cmpt = generate_compute_command_buffer(&directx_context, sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, sim_data->simulation_desc_heap, sim_data->rndr_stage, width, height);
+						auto draw_circles 	= generate_command_buffer(&directx_context, sim_data->arena, sim_data->cmd_list, sim_data->simulation_desc_heap, sim_data->rndr_stage);
 						auto imgui_cmd_list = generate_imgui_command_buffer(&directx_context);
 						
-						pipeline.update(&directx_context, &sim_data->simulation_desc_heap, &directx_context.mem_arena, sim_data->cmd_list, pipeline.bindings);
+						graph_pipeline.update(&directx_context, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, graph_pipeline.bindings);
+						compute_pipeline.update(&directx_context, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, compute_pipeline.bindings);
 
 						float clear_color[] = { 0.0f, 0.2f, 0.4f, 1.0f };
 						// render(&directx_context, compute_cmd_list);
@@ -245,11 +301,30 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 					resize(&directx_context, main_window_info.width, main_window_info.height);
 
 					particle_simulation* sim_data = (particle_simulation*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
-					sim_data->ndc_matrix			= screen_to_ndc(main_window_info.width, main_window_info.height);
 
-					render_pass			pass		= directx_context.mem_arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 0);
-					graphic_pipeline 	pipeline 	= directx_context.mem_arena.load(pass.curr_pipeline_g);
-					pipeline.resize(&directx_context, &sim_data->simulation_desc_heap, &directx_context.mem_arena, main_window_info.width, main_window_info.height, pipeline.bindings);
+					auto final_grad	= sim_data->arena.get_array(sim_data->final_gradient);
+					auto densities	= sim_data->arena.get_array(sim_data->densities);
+
+					// for(u32 i = 0; i < main_window_info.height; ++i) {
+					// 	for(u32 j = 0; j < main_window_info.width; ++j) {
+					// 		densities[i + (i32)main_window_info.width * j] = sim_data->calculate_density(V2(j, i), 512.0f);
+					// 	}
+					// }
+					
+					// for(u32 i = 0; i < main_window_info.height; ++i) {
+					// 	for(u32 j = 0; j < main_window_info.width; ++j) {
+					// 		final_grad[i + (i32)main_window_info.width * j] = sim_data->calculate_property(V2(j, i), 512.0f);
+					// 	}
+					// }
+
+					sim_data->final_gradient.count	= main_window_info.width * main_window_info.height;
+
+					render_pass			graph_pass		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 0);
+					render_pass			comp_pass		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 1);
+					graphic_pipeline 	graph_pipeline 	= sim_data->arena.load(graph_pass.curr_pipeline_g);
+					compute_pipeline	compute_pipeline = sim_data->arena.load(comp_pass.curr_pipeline_c);
+					graph_pipeline.resize(&directx_context, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, main_window_info.width, main_window_info.height, graph_pipeline.bindings);
+					compute_pipeline.resize(&directx_context, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, main_window_info.width, main_window_info.height, compute_pipeline.bindings);
 				}
 #else
 				do_redraw(hwnd);
@@ -395,7 +470,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	//NOTE(DH): Full directx initialization
 	directx_context = init_dx(directx_context.g_hwnd);
 
-	auto p_sim = initialize_simulation(&directx_context, 32, 90.7f, 0.7f);
+	auto p_sim = initialize_simulation(&directx_context, 404, 0.0f, 0.7f);
 	SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)&p_sim);
 
 	//NOTE(DH): Initialize IMGUI {
