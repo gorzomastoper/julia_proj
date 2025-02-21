@@ -213,7 +213,7 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 						start_imgui_frame();
 
 						auto gen_ui = [sim_data, width, height](dx_context *ctx) {
-							ImGui::ShowDemoWindow();
+							// ImGui::ShowDemoWindow();
 
 							bool active_tool = true;
 							ImGui::Begin("Core Menu", &ctx->g_is_menu_active, ImGuiWindowFlags_MenuBar);
@@ -242,9 +242,7 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 							ImGui::SliderFloat(VAR_NAME(sim_data->bounds_size.y), &sim_data->bounds_size.y, 1.0f, (f32)height);
 							ImGui::SliderFloat(VAR_NAME(sim_data->info_for_cshader.smoothing_radius), &sim_data->info_for_cshader.smoothing_radius, 0.0f, 10.0f);
 							// ImGui::ColorPicker4("Color a", (f32*)&sim_data->info_for_cshader.color_a);
-							// ImGui::SameLine();
 							// ImGui::ColorPicker4("Color b", (f32*)&sim_data->info_for_cshader.color_b);
-							// ImGui::SameLine();
 							// ImGui::ColorPicker4("Color c", (f32*)&sim_data->info_for_cshader.color_c);
 					
 							if(ImGui::Button("Recompile Shader"))
@@ -255,7 +253,7 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 							ImGui::PopStyleColor();
 							ImGui::End();
 
-							imgui_draw_canvas(ctx);
+							// imgui_draw_canvas(ctx);
 						};
 
 						gen_ui(&directx_context);
@@ -263,7 +261,7 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 						finish_imgui_frame();
 
 						// auto compute_cmd_list = generate_compute_command_buffer(&directx_context, directx_context.viewport.Width, directx_context.viewport.Height);
-						auto draw_with_cmpt = generate_compute_command_buffer(&directx_context, sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, sim_data->simulation_desc_heap, sim_data->rndr_stage, width, height);
+						// auto draw_with_cmpt = generate_compute_command_buffer(&directx_context, sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, sim_data->simulation_desc_heap, sim_data->rndr_stage, width, height);
 						auto draw_circles 	= generate_command_buffer(&directx_context, sim_data->arena, sim_data->cmd_list, sim_data->simulation_desc_heap, sim_data->rndr_stage);
 						auto imgui_cmd_list = generate_imgui_command_buffer(&directx_context);
 						
@@ -475,7 +473,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	//NOTE(DH): Full directx initialization
 	directx_context = init_dx(directx_context.g_hwnd);
 
-	auto p_sim = initialize_simulation(&directx_context, 1024, 0.0f, 0.7f);
+	auto p_sim = initialize_simulation(&directx_context, 4096, 0.0f, 0.7f);
 	SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)&p_sim);
 
 	//NOTE(DH): Initialize IMGUI {

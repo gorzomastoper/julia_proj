@@ -41,7 +41,9 @@ struct particle_simulation {
 
 	memory_arena 					arena;
 	arena_array<particle> 			particles;
-	arena_array<pos_and_vel>		p_n_v;
+	arena_array<v2>					positions;
+	arena_array<v2>					predicted_positions;
+	arena_array<v2>					velocities;
 	arena_array<mat4> 				matrices;
 	arena_array<resource_and_view> 	resources_and_views;
 	arena_array<f32>				particle_properties;
@@ -63,14 +65,15 @@ struct particle_simulation {
 	inline func calculate_density(v2 sample_point, f32 smoothing_radius) -> f32;
 	inline func calculate_property(v2 sample_point, f32 smoothing_radius) -> f32;
 	inline func calculate_pressure_force(u32 particle_idx, f32 smoothing_radius) -> v2;
-	inline func calculate_shared_pressure(f32 density_a, f32 density_b) -> f32;
-	inline func convert_density_to_pressure(f32 density) -> f32;
 	inline func simulation_step(f32 delta_time, u32 width, u32 height) -> void;
 	inline func update_spatial_lookup(f32 radius) -> void;
-	inline func foreach_point_within_radius(v2 sample_point) -> void;
+	inline func foreach_point_within_radius(f32 dt, v2 sample_point, void(*lambda)(particle_simulation *sim, u32 particle_idx, f32 dt, f32 gravity)) -> void;
 };
 
 static inline func initialize_simulation(dx_context *ctx, u32 particle_count, f32 gravity, f32 collision_damping) -> particle_simulation;
+
+inline func calculate_shared_pressure(f32 density_a, f32 density_b, f32 target_density, f32 pressure_multiplier) -> f32;
+inline func convert_density_to_pressure(f32 density, f32 target_density, f32 pressure_multiplier) -> f32;
 
 func generate_command_buffer(dx_context *context, memory_arena arena, ID3D12GraphicsCommandList *cmd_list, descriptor_heap heap, rendering_stage rndr_stage) -> ID3D12GraphicsCommandList*;
 func generate_compute_command_buffer(dx_context *ctx, memory_arena arena, arena_array<resource_and_view> r_n_v, ID3D12GraphicsCommandList *cmd_list, descriptor_heap heap, rendering_stage rndr_stage, u32 width, u32 height) -> ID3D12GraphicsCommandList*;
