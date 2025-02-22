@@ -22,7 +22,7 @@ struct particles_info {
 	f32 particle_count;
 	f32 smoothing_radius;
 	f32 pressure;
-	f32 ignored2;
+	f32 max_velocity;
 	v4 color_a;
 	v4 color_b;
 	v4 color_c;
@@ -31,11 +31,14 @@ struct particles_info {
 static_assert((sizeof(particles_info) % 256) == 0, "Constant Buffer size must be 256-byte aligned");
 
 struct particle_simulation {
+	u32 sim_data_counter;
 	f32 gravity;
 	f32 collision_damping;
 	f32 target_density;
 	f32 pressure_multiplier;
+	f32 delta_time;
 	v2 bounds_size;
+	f32 max_velocity = 10.0f;
 
 	particles_info info_for_cshader;
 
@@ -61,13 +64,14 @@ struct particle_simulation {
 	rendering_stage rndr_stage;
 
 	inline func update_particles(f32 delta_time) -> void;
-	inline func resolve_collisions(pos_and_vel data, f32 particle_size) -> pos_and_vel;
+	inline func resolve_collisions(v2* position, v2* velocity,f32 particle_size) -> void;
 	inline func calculate_density(v2 sample_point, f32 smoothing_radius) -> f32;
 	inline func calculate_property(v2 sample_point, f32 smoothing_radius) -> f32;
 	inline func calculate_pressure_force(u32 particle_idx, f32 smoothing_radius) -> v2;
 	inline func simulation_step(f32 delta_time, u32 width, u32 height) -> void;
 	inline func update_spatial_lookup(f32 radius) -> void;
-	inline func foreach_point_within_radius(f32 dt, v2 sample_point, void(*lambda)(particle_simulation *sim, u32 particle_idx, f32 dt, f32 gravity)) -> void;
+	inline func interaction_force(v2 input_pos, f32 radius, f32 strength, u32 particle_idx) -> v2;
+	inline func foreach_point_within_radius(f32 dt, v2 sample_point, u8* data, void(*lambda)(particle_simulation *sim, u32 particle_idx, f32 dt, f32 gravity, u8* data)) -> void;
 };
 
 static inline func initialize_simulation(dx_context *ctx, u32 particle_count, f32 gravity, f32 collision_damping) -> particle_simulation;

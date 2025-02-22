@@ -148,6 +148,7 @@ bool quiting = false;
 global_variable bool global_pause = false;
 global_variable f64 GlobalPerfCountFrequency;
 global_variable f32 last_time;
+global_variable f32 lag;
 
 inline LARGE_INTEGER
 win32_get_wall_clock()
@@ -190,14 +191,17 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 			case WM_PAINT: {
 					// if(!global_pause) 
 					{
+						directx_context.update_counter++;
 						u32 width = directx_context.viewport.Width;
 						u32 height = directx_context.viewport.Height;
 						particle_simulation* sim_data = (particle_simulation*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
 						directx_context.common_cbuff_data.mouse_pos.xy = sim_data->bounds_size;
 
+						f32 fixed_delta_time = 1.0f / 120.0f;
 						f32 current_time = GetCurrentTime();
 						f32 delta_time = current_time - last_time;
 						last_time = current_time;
+						lag += delta_time * 0.001f;
 
 						directx_context.dt_for_frame = delta_time * 0.001;
 						update(&directx_context);
@@ -207,8 +211,15 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 						graphic_pipeline 	graph_pipeline 	= sim_data->arena.load(graph_pass.curr_pipeline_g);
 						compute_pipeline	compute_pipeline = sim_data->arena.load(comp_pass.curr_pipeline_c);
 
-						// sim_data->update_particles(directx_context.dt_for_frame);
-						sim_data->simulation_step(directx_context.dt_for_frame, width, height);
+						f32 sim_substeps = 3;
+
+						if (lag >= fixed_delta_time) {
+							for(u8 i = 0; i < sim_substeps; ++i) {
+								f32 substep_delta_time = fixed_delta_time / sim_substeps;
+								sim_data->simulation_step(substep_delta_time, width, height);
+							}
+							lag -= fixed_delta_time;
+						}
 
 						start_imgui_frame();
 
@@ -229,6 +240,7 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 								ImGui::EndMenuBar();
 							}
 					
+							ImGui::Text("Update counter: %u | Sim update counter: %u", ctx->update_counter, sim_data->sim_data_counter);
 							ImGui::Text("This is some useful text.");
 							ImGui::Text("Memory used by render backend: %u of %u kb", u32(ctx->mem_arena.used / Kilobytes(1)), u32(ctx->mem_arena.size / Kilobytes(1)));
 							ImGui::Text("Time Elapsed: %f ", ctx->time_elapsed);
@@ -236,14 +248,15 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 
 							ImGui::SliderFloat(VAR_NAME(sim_data->gravity), &sim_data->gravity, 0.1f, 10.0f);
 							ImGui::SliderFloat(VAR_NAME(sim_data->collision_damping), &sim_data->collision_damping, 0.01f, 2.0f);
-							ImGui::SliderFloat(VAR_NAME(sim_data->pressure_multiplier), &sim_data->pressure_multiplier, 0.01f, 500.0f);
+							ImGui::SliderFloat(VAR_NAME(sim_data->pressure_multiplier), &sim_data->pressure_multiplier, 0.01f, 256.0f);
 							ImGui::SliderFloat(VAR_NAME(sim_data->target_density), &sim_data->target_density, 0.01f, 10.0f);
+							ImGui::SliderFloat(VAR_NAME(sim_data->max_velocity), &sim_data->max_velocity, 0.01f, 10.0f);
 							ImGui::SliderFloat(VAR_NAME(sim_data->bounds_size.x), &sim_data->bounds_size.x, 1.0f, (f32)width);
 							ImGui::SliderFloat(VAR_NAME(sim_data->bounds_size.y), &sim_data->bounds_size.y, 1.0f, (f32)height);
 							ImGui::SliderFloat(VAR_NAME(sim_data->info_for_cshader.smoothing_radius), &sim_data->info_for_cshader.smoothing_radius, 0.0f, 10.0f);
-							// ImGui::ColorPicker4("Color a", (f32*)&sim_data->info_for_cshader.color_a);
-							// ImGui::ColorPicker4("Color b", (f32*)&sim_data->info_for_cshader.color_b);
-							// ImGui::ColorPicker4("Color c", (f32*)&sim_data->info_for_cshader.color_c);
+							ImGui::ColorPicker4("Color a", (f32*)&sim_data->info_for_cshader.color_a);
+							ImGui::ColorPicker4("Color b", (f32*)&sim_data->info_for_cshader.color_b);
+							ImGui::ColorPicker4("Color c", (f32*)&sim_data->info_for_cshader.color_c);
 					
 							if(ImGui::Button("Recompile Shader"))
 								ctx->g_recompile_shader = true;
@@ -473,7 +486,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	//NOTE(DH): Full directx initialization
 	directx_context = init_dx(directx_context.g_hwnd);
 
-	auto p_sim = initialize_simulation(&directx_context, 4096, 0.0f, 0.7f);
+	auto p_sim = initialize_simulation(&directx_context, 1024, 0.0f, 0.7f);
 	SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)&p_sim);
 
 	//NOTE(DH): Initialize IMGUI {

@@ -7,6 +7,13 @@
 #include <numbers>
 #include <random>
 #include <immintrin.h>
+#include <vector>
+
+v2 calculate_circle_uv(f32 radius, f32 angle, f32 max_radius) {
+	f32 v = radius / max_radius;
+	f32 u = angle / (2.0f * std::numbers::pi);
+	return V2(u,v);
+}
 
 // Generate simple circle
 std::vector<vertex> generate_circle_vertices(f32 radius, f32 x, f32 y, u32 fragments)
@@ -18,9 +25,10 @@ std::vector<vertex> generate_circle_vertices(f32 radius, f32 x, f32 y, u32 fragm
 
 	result.push_back(vertex{V3(x, y, 0.0), V4(0.5, 0.5, 0, 0)});
 
-	for(float curr_angle = 0.0f; curr_angle <= 2.0 * PI; curr_angle += increment)
+	for(float curr_angle = 0.0f; curr_angle < 2.0 * PI; curr_angle += increment)
 	{
-		result.push_back(vertex{V3(radius * cos(curr_angle) + x, radius * sin(curr_angle) + y, 0.0), V4(1.0, 1.0, 0, 0)});
+		v2 uv = calculate_circle_uv(radius, curr_angle, radius * 4.0f);
+		result.push_back(vertex{V3(radius * cos(curr_angle) + x, radius * sin(curr_angle) + y, 0.0), V4(uv.x, uv.y, 0, 0)});
 	}
 
 	return result;
@@ -46,7 +54,7 @@ std::vector<u32> generate_circle_indices(u32 vertices_count) {
 static inline func smoothing_kernel(f32 radius, f32 dst) -> f32 {
 	if(dst >= radius) return 0;
 	f32 volume = (std::numbers::pi * pow(radius, 4.0f)) / 6.0f;
-	return (radius - dst) * (radius - dst) / volume;
+	return SafeRatio0((radius - dst) * (radius - dst), volume);
 }
 
 static inline func smoothing_kernel_derivative(f32 dst, f32 radius) -> f32 {
@@ -58,6 +66,7 @@ static inline func smoothing_kernel_derivative(f32 dst, f32 radius) -> f32 {
 
 static inline func get_random_dir() -> v2 {
 	// NOTE(DH): Randomly create particles
+	printf("Get random dir is called !\n");
 	std::random_device rd;
 	std::mt19937 gen(rd());
 	std::uniform_real_distribution<f32> distrib(0.0f, 2.0f * std::numbers::pi);
@@ -92,7 +101,7 @@ static inline func get_key_from_hash(u32 hash, u32 array_count) -> u32 {
 	return hash % array_count;
 }
 
-inline func particle_simulation::foreach_point_within_radius(f32 dt, v2 sample_point, void(*lambda)(particle_simulation *sim, u32 particle_idx, f32 dt, f32 gravity)) -> void {
+inline func particle_simulation::foreach_point_within_radius(f32 dt, v2 sample_point, u8* data, void(*lambda)(particle_simulation *sim, u32 particle_idx, f32 dt, f32 gravity, u8* data)) -> void {
 	auto indices 		= arena.get_array(this->start_indices);
 	auto spatial_lookup = arena.get_array(this->spatial_lookup);
 	auto points			= arena.get_array(this->positions);
@@ -116,7 +125,7 @@ inline func particle_simulation::foreach_point_within_radius(f32 dt, v2 sample_p
 
 			// NOTE(DH): Test if the point is inside the radius
 			if(sqr_dst <= sqr_radius) {
-				lambda(this, particle_index, dt, this->gravity);
+				lambda(this, particle_index, dt, this->gravity, data);
 				++num_of_iters;
 			}
 		}
@@ -158,76 +167,26 @@ inline func calculate_shared_pressure(f32 density_a, f32 density_b, f32 target_d
 	return (pressure_A + pressure_B) / 2;
 }
 
-inline func __attribute__ ((__target__("avx2")))particle_simulation::calculate_pressure_force(u32 particle_idx, f32 smoothing_radius) -> v2 {
+inline func particle_simulation::calculate_pressure_force(u32 particle_idx, f32 smoothing_radius) -> v2 {
 	auto particles = arena.get_array(this->particles);
 	auto positions = arena.get_array(this->positions);
-	auto prprtes   = arena.get_array(this->particle_properties);
 	auto densities = arena.get_array(this->densities);
 
 	v2 pressure_force = {};
 
-	auto pm = this->pressure_multiplier;
-	auto td = this->target_density;
-
-	// struct Result {
-	// 	void operator()(v2 position) {
-	// 		v2 offset = position - other_pos;
-	// 		f32 dst = Length(offset);
-	// 		v2 dir = (dst <= 0.00001f) ? get_random_dir() : offset * (1.0f / dst);
-
-	// 		f32 slope = smoothing_kernel_derivative(dst, smoothing_radius);
-	// 		f32 density = ;
-	// 	};
-
-	// 	Result(v2 pos, f32 smoothing, u32* idx) {
-	// 		other_pos = pos;
-	// 		smoothing_radius = smoothing;
-	// 		index = idx;
-	// 	}
-
-	// 	u32* index = nullptr;
-	// 	f32 smoothing_radius = 0;
-	// 	v2 other_pos = {};
-	// 	v2 pressure_force = {};
-	// };
-
-	// u32 i = 0;
-	// std::for_each(std::execution::par, positions, positions + this->positions.count, [particle_idx, &i, &pressure_force, densities, positions, smoothing_radius, pm, td](v2& element){
-	// 	if(particle_idx != i) {
-	// 		v2 offset = element - positions[particle_idx];
-	// 		f32 dst = Length(offset);
-	// 		v2 dir = (dst <= 0.00001f) ?  get_random_dir() : offset * (1.0f / dst);
-
-	// 		f32 slope = smoothing_kernel_derivative(dst, smoothing_radius);
-	// 		f32 density = densities[i];
-	// 		f32 shared_pressure = calculate_shared_pressure(density, densities[particle_idx], td, pm);
-	// 		pressure_force.x += SafeRatio0(shared_pressure * dir.x * slope, density);
-	// 		pressure_force.y += SafeRatio0(shared_pressure * dir.y * slope, density);
-	// 	}
-	// 	++i;
-	// });
-
-	// foreach_point_within_radius(0.0f, sample_position, calc_pressure_force);
-
 	for(u32 i = 0 ; i < this->particles.count; ++i) {
 		if(particle_idx == i) continue;
+
 		v2 offset = positions[i] - positions[particle_idx];
 		f32 dst = Length(offset);
-		v2 dir = (dst <= 0.00001f) ?  get_random_dir() : offset * (1.0f / dst);
+		v2 dir = (dst == 0.0f) ?  get_random_dir() : offset * (SafeRatio0(1.0f, dst));
 
 		f32 slope = smoothing_kernel_derivative(dst, smoothing_radius);
 		f32 density = densities[i];
-		f32 shared_pressure = calculate_shared_pressure(density, densities[particle_idx], td, pm);
+		f32 shared_pressure = calculate_shared_pressure(density, densities[particle_idx], this->target_density, this->pressure_multiplier);
 		pressure_force.x += SafeRatio0(shared_pressure * dir.x * slope, density);
 		pressure_force.y += SafeRatio0(shared_pressure * dir.y * slope, density);
 	}
-
-	// u32 idx = 0;
-	// for(; idx + 7 < this->particles.count; idx += 8) {
-	// 	__m256 vec = _mm256_loadu_ps((f32*)&positions[idx]);
-
-	// 	vec = _mm256_sub_ps(vec, _mm256_set_ps(positions[particle_idx].x, positions[particle_idx].y, positions[particle_idx].x, positions[particle_idx].y, positions[particle_idx].x, positions[particle_idx].y, positions[particle_idx].x, positions[particle_idx].y));
-	// }
 
 	return pressure_force;
 }
@@ -237,14 +196,6 @@ inline func particle_simulation::calculate_density(v2 sample_point, f32 smoothin
 
 	f32 density = 0;
 	f32 mass = 1.0f;
-
-	// u32 i = 0;
-	// std::for_each(std::execution::seq, positions, positions + this->positions.count, [sample_point, positions, &i, smoothing_radius, &density, mass](v2& element){
-	// 	f32 dst = Length(element - sample_point);
-	// 	f32 influence = smoothing_kernel(smoothing_radius, dst);
-	// 	density += mass * influence;
-	// 	++i;
-	// });
 
 	for(u32 i = 0 ; i < this->particles.count; ++i) {
 		f32 dst = Length(positions[i] - sample_point);
@@ -268,7 +219,7 @@ inline func particle_simulation::calculate_property(v2 sample_point, f32 smoothi
 		f32 dst = Length(positions[i] - sample_point);
 		f32 influence = smoothing_kernel(smoothing_radius, dst);
 		f32 density = densities[i];
-		property += SafeRatio0(prprtes[i] * mass * influence, density);
+		property += SafeRatio0(-prprtes[i] * mass * influence, density);
 	}
 
 	return property;
@@ -287,40 +238,33 @@ func sign(f32 val) -> f32 {
 	return 0;
 }
 
-func update_particle(f32 delta_time, pos_and_vel p_n_v, f32 gravity) -> pos_and_vel {
-	
-	return p_n_v;
-}
+// func particle_simulation::update_particles(f32 dt) -> void {
+// 	auto particles = arena.get_array(this->particles);
+// 	auto positions = arena.get_array(this->positions);
+// 	auto velocities = arena.get_array(this->velocities);
 
-func particle_simulation::update_particles(f32 dt) -> void {
-	auto particles = arena.get_array(this->particles);
-	auto positions = arena.get_array(this->positions);
-	auto velocities = arena.get_array(this->velocities);
+// 	for(u32 i = 0 ; i < this->particles.count; ++i) {
+// 		velocities[i] 	+= V2(0.0, -1.0) * gravity * dt;
+// 		positions[i] 	+= velocities[i] * dt;
+// 		resolve_collisions(&positions[i], &velocities[i], particles[i].particle_size);
+// 		// positions[i] 	= p_n_v.position;
+// 		// velocities[i] 	= p_n_v.velocity;
 
-	for(u32 i = 0 ; i < this->particles.count; ++i) {
-		velocities[i] 	+= V2(0.0, -1.0) * gravity * dt;
-		positions[i] 	+= velocities[i] * dt;
-		pos_and_vel p_n_v = resolve_collisions({.position = positions[i], .velocity = velocities[i]}, particles[i].particle_size);
-		positions[i] 	= p_n_v.position;
-		velocities[i] 	= p_n_v.velocity;
+// 		arena.get_array(matrices)[i] = translation_matrix(V3(positions[i], 0.0f));
+// 	}
+// }
 
-		arena.get_array(matrices)[i] = translation_matrix(V3(positions[i], 0.0f));
-	}
-}
-
-func particle_simulation::resolve_collisions(pos_and_vel data, f32 particle_size) -> pos_and_vel {
+func particle_simulation::resolve_collisions(v2* position, v2* velocity,f32 particle_size) -> void {
 	v2 half_bound_size = this->bounds_size * 0.5f - V2(particle_size, particle_size);
 
-	if(abs(data.position.x) > half_bound_size.x) {
-		data.position.x = half_bound_size.x * sign(data.position.x);
-		data.velocity.x *= -1 * collision_damping;
+	if(abs(position->x) > half_bound_size.x) {
+		position->x = half_bound_size.x * sign(position->x);
+		velocity->x *= -1 * collision_damping;
 	}
-	if(abs(data.position.y) > half_bound_size.y) {
-		data.position.y = half_bound_size.y * sign(data.position.y);
-		data.velocity.y *= -1 * collision_damping;
+	if(abs(position->y) > half_bound_size.y) {
+		position->y = half_bound_size.y * sign(position->y);
+		velocity->y *= -1 * collision_damping;
 	}
-
-	return data;
 }
 
 ID3D12GraphicsCommandList* generate_compute_command_buffer(dx_context *ctx, memory_arena arena, arena_array<resource_and_view> r_n_v, ID3D12GraphicsCommandList *cmd_list, descriptor_heap heap, rendering_stage rndr_stage, u32 width, u32 height)
@@ -392,7 +336,7 @@ ID3D12GraphicsCommandList* generate_command_buffer(dx_context *context, memory_a
 	set_render_target(cmd_list, context->g_rtv_descriptor_heap, 1, FALSE, context->g_frame_index, context->g_rtv_descriptor_size);
 
     // Record commands.
-    const float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    const float clearColor[] = { 0.0f, 0.0f, 0.06f, 1.0f };
     cmd_list->ClearRenderTargetView
 	(
 		get_rtv_descriptor_handle(context->g_rtv_descriptor_heap, context->g_frame_index, context->g_rtv_descriptor_size), 
@@ -422,6 +366,10 @@ float example_function(v2 pos) {
 }
 
 inline func particle_simulation::simulation_step(f32 delta_time, u32 width, u32 height) -> void {
+	this->sim_data_counter++;
+	this->delta_time = delta_time;
+	this->info_for_cshader.max_velocity = max_velocity;
+
 	auto dnsties	= arena.get_array(this->densities);
 	auto particles = arena.get_array(this->particles);
 	auto positions = arena.get_array(this->positions);
@@ -429,80 +377,67 @@ inline func particle_simulation::simulation_step(f32 delta_time, u32 width, u32 
 	auto predicted_positions = arena.get_array(this->predicted_positions);
 
 	for(u32 i = 0 ; i < this->particles.count; ++i) {
-		v2 position = positions[i];
-		v2 velocity = velocities[i];
-		velocity += V2(0.0, 1.0f) * gravity * delta_time;
-		velocities[i] = velocity;
+		velocities[i] += V2(0.0, 1.0f) * gravity * delta_time;
+		predicted_positions[i] = positions[i] + velocities[i] * (1.0f / 120.0f);
 	}
+
+	// u32 i = 0;
+	// std::for_each(std::execution::seq, velocities, velocities + this->velocities.count, [this, &i, delta_time, positions, predicted_positions, dnsties](v2& elem){
+	// 	elem += V2(0.0, 1.0f) * gravity * delta_time;
+	// 	predicted_positions[i] = positions[i] + elem * delta_time;
+	// 	dnsties[i] = calculate_density(predicted_positions[i], this->info_for_cshader.smoothing_radius);
+	// 	++i;
+	// });
 
 	// update_spatial_lookup(this->info_for_cshader.smoothing_radius);
 
-	auto offsets = arena.get_array(this->cell_offsets);
-	// for(u32 i = 0 ; i < this->cell_offsets.count; ++i) {
-	// 	v2 sample_position = V2(offsets[i].x, offsets[i].y);
-	// 	// foreach_point_within_radius(delta_time, sample_position, update_velocities);
-	// 	foreach_point_within_radius(delta_time, sample_position, calc_densities);
-	// 	foreach_point_within_radius(delta_time, sample_position, calc_pressure_force);
-	// }
-
-	// for(u32 i = 0 ; i < this->particles.count; ++i) {
-	// 	auto positions = this->arena.get_array(this->p_n_v);
-	// 	foreach_point_within_radius(delta_time, positions[i].position, calc_densities);
-	// }
-
-	// for(u32 i = 0 ; i < this->particles.count; ++i) {
-	// 	auto positions = this->arena.get_array(this->p_n_v);
-	// 	foreach_point_within_radius(delta_time, positions[i].position, calc_pressure_force);
-	// }
+	// auto offsets = arena.get_array(this->cell_offsets);
 
 	// auto start = std::chrono::high_resolution_clock::now();
-	// for(u32 i = 0 ; i < this->particles.count; ++i) {
-	// 	dnsties[i] = calculate_density(positions[i], this->info_for_cshader.smoothing_radius);
-	// }
+	// i = 0;
+	// std::for_each(std::execution::seq, dnsties, dnsties + this->densities.count, [this, &i, delta_time, predicted_positions](f32& elem){
+	// 	elem = calculate_density(predicted_positions[i], this->info_for_cshader.smoothing_radius);
+	// 	++i;
+	// });
 	// auto end = std::chrono::high_resolution_clock::now();
 	// std::chrono::duration<f32>	duration = end - start;
 	// printf("duration of calc density: %f\n", (f32)std::chrono::duration_cast<std::chrono::milliseconds>(duration).count());
 
-	// start = std::chrono::high_resolution_clock::now();
-	// for(u32 i = 0 ; i < this->particles.count; ++i) {
-	// 	v2 pressure_force = calculate_pressure_force(i, this->info_for_cshader.smoothing_radius);
-	// 	v2 pressure_acceleration = pressure_force * (1.0f /  dnsties[i]);
-	// 	velocities[i] += pressure_acceleration * delta_time;
-	// }
-	// end = std::chrono::high_resolution_clock::now();
-	// duration = end - start;
-	// printf("duration of calc pressure force: %f\n", duration.count());
+	for(u32 i = 0 ; i < this->positions.count; ++i) {
+		dnsties[i] = calculate_density(predicted_positions[i], this->info_for_cshader.smoothing_radius);
+	}
 
-	auto start = std::chrono::high_resolution_clock::now();
-	u32 i = 0;
-	std::for_each(std::execution::par, dnsties, dnsties + this->densities.count, [this, &i, delta_time, positions](f32& elem){
-		elem = calculate_density(positions[i], this->info_for_cshader.smoothing_radius);
-		++i;
-	});
-	auto end = std::chrono::high_resolution_clock::now();
-	std::chrono::duration<f32>	duration = end - start;
-	printf("duration of calc density: %f\n", (f32)std::chrono::duration_cast<std::chrono::milliseconds>(duration).count());
-
-	start = std::chrono::high_resolution_clock::now();
-	i = 0;
-	std::for_each(std::execution::seq, velocities, velocities + this->velocities.count, [this, &i, delta_time, dnsties](v2& elem){
+	for(u32 i = 0 ; i < this->particles.count; ++i) {
 		v2 pressure_force = calculate_pressure_force(i, this->info_for_cshader.smoothing_radius);
 		v2 pressure_acceleration = pressure_force * (1.0f /  dnsties[i]);
-		elem += pressure_acceleration * delta_time;
-		++i;
-	});
-	end = std::chrono::high_resolution_clock::now();
-	duration = end - start;
-	printf("duration of calc pressure force: %f\n", (f32)std::chrono::duration_cast<std::chrono::milliseconds>(duration).count());
+		velocities[i] += pressure_acceleration * delta_time;
+	}
+
+	// start = std::chrono::high_resolution_clock::now();
+	// i = 0;
+	// std::for_each(std::execution::seq, velocities, velocities + this->velocities.count, [this, &i, delta_time, dnsties](v2& elem){
+	// 	v2 pressure_force = calculate_pressure_force(i, this->info_for_cshader.smoothing_radius);
+	// 	v2 pressure_acceleration = pressure_force * (1.0f /  dnsties[i]);
+	// 	elem += pressure_acceleration * delta_time;
+	// 	++i;
+	// });
+	// end = std::chrono::high_resolution_clock::now();
+	// duration = end - start;
+	// printf("duration of calc pressure force: %f\n", (f32)std::chrono::duration_cast<std::chrono::milliseconds>(duration).count());
 
 	for(u32 i = 0 ; i < this->particles.count; ++i) {
 		positions[i] += velocities[i] * delta_time;
-		pos_and_vel p_n_v = resolve_collisions( { .position = positions[i], .velocity = velocities[i] }, particles[i].particle_size);
-		positions[i] = p_n_v.position;
-		velocities[i] = p_n_v.velocity;
-
+		resolve_collisions(&positions[i], &velocities[i], particles[i].particle_size);
 		arena.get_array(matrices)[i] = translation_matrix(V3(positions[i], 0.0f));
+
+		if(Length(velocities[i]) > this->max_velocity) {
+			velocities[i] = normalize(velocities[i]) * this->max_velocity;
+		}
 	}
+}
+
+inline func particle_simulation::interaction_force(v2 input_pos, f32 radius, f32 strength, u32 particle_idx) -> v2 {
+	
 }
 
 inline func initialize_simulation(dx_context *ctx, u32 particle_count, f32 gravity, f32 collision_damping) -> particle_simulation {
@@ -545,7 +480,7 @@ inline func initialize_simulation(dx_context *ctx, u32 particle_count, f32 gravi
 
 	result.info_for_cshader		= {};
 	result.info_for_cshader.particle_count = particle_count;
-	result.info_for_cshader.smoothing_radius = 0.6f;
+	result.info_for_cshader.smoothing_radius = 0.3f;
 
 	result.cmd_list 			= create_command_list<ID3D12GraphicsCommandList>(ctx, D3D12_COMMAND_LIST_TYPE_DIRECT, nullptr, true);
 	result.simulation_desc_heap = allocate_descriptor_heap(ctx->g_device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, 32);
@@ -554,17 +489,19 @@ inline func initialize_simulation(dx_context *ctx, u32 particle_count, f32 gravi
 		result.command_allocators[i] = create_command_allocator(ctx->g_device, D3D12_COMMAND_LIST_TYPE_DIRECT);
 	}
 
-	float particle_size = 0.04f;
+	float particle_size = 0.05f;
 
 	u32 particles_row = (i32)sqrt(particle_count);
 	u32 particle_per_col  = (particle_count - 1) / particles_row + 1;
-	float spacing = particle_size * 2 + 0.1f;
+	float spacing = particle_size * 2 + 0.03f;
 
 	auto prtcles 	= result.arena.get_array(result.particles);
 	auto p_n_vs		= result.arena.get_array(result.positions);
 	auto prprtes	= result.arena.get_array(result.particle_properties);
 	auto final_grad	= result.arena.get_array(result.final_gradient);
 	auto densities	= result.arena.get_array(result.densities);
+	auto velocities = result.arena.get_array(result.velocities);
+	auto predicted_positions = result.arena.get_array(result.predicted_positions);
 
 	// NOTE(DH): Randomly create particles
 	std::random_device rd;
@@ -588,7 +525,16 @@ inline func initialize_simulation(dx_context *ctx, u32 particle_count, f32 gravi
 
 		prprtes[i] = example_function(p_n_vs[i]);
 
-		cell_offsets[i] = V2i(((i32)i % (i32)particles_row) - (i32)(particles_row / 2), -(i32)(particle_per_col) + ((i32)i / (i32)(particles_row / 2)));
+		velocities[i] += V2(0.0, 1.0f) * gravity * result.delta_time;
+		predicted_positions[i] = p_n_vs[i] + velocities[i] * result.delta_time;
+
+		// cell_offsets[i] = V2i(((i32)i % (i32)particles_row) - (i32)(particles_row / 2), -(i32)(particle_per_col) + ((i32)i / (i32)(particles_row / 2)));
+		// p_n_vs[i].x = cell_offsets[i].x;
+		// p_n_vs[i].y = cell_offsets[i].y;
+	}
+
+	for(u32 i = 0 ; i < particle_count; ++i) {
+		densities[i] = result.calculate_density(predicted_positions[i], result.info_for_cshader.smoothing_radius);
 	}
 
 	// i32 half_size = particle_count / 2;
@@ -597,10 +543,6 @@ inline func initialize_simulation(dx_context *ctx, u32 particle_count, f32 gravi
 	// 		cell_offsets[j + half_size * i] = V2i(-(half_size / 2) + (i32)j, -(half_size / 2) + (i32)i);
 	// 	}
 	// }
-
-	for(u32 i = 0 ; i < particle_count; ++i) {
-		densities[i] = result.calculate_density(p_n_vs[i], result.info_for_cshader.smoothing_radius);
-	}
 	
 	// u32 width = 2560;
 	// u32 height = 1440;
@@ -660,27 +602,26 @@ inline func initialize_simulation(dx_context *ctx, u32 particle_count, f32 gravi
 	std::vector<u32> circ_idc 	= generate_circle_indices(64);
 
 	auto mtx_data = result.arena.get_array(result.matrices);
+	auto vel_data = result.arena.get_array(result.velocities);
 
 	// NOTE(DH): Graphics pipeline
 	{
 		// NOTE(DH): Create resources
+		buffer_cbuf	cbuff2 		= buffer_cbuf	::	create (ctx->g_device, result.arena, &result.simulation_desc_heap, &result.resources_and_views, (u8*)&result.info_for_cshader, 1);
 		buffer_cbuf cbuff 		= buffer_cbuf	::	create 	(ctx->g_device, result.arena, &result.simulation_desc_heap, &result.resources_and_views, (u8*)&ctx->common_cbuff_data,0);
 		buffer_vtex mesh		= buffer_vtex	::	create 	(ctx->g_device, result.arena, &result.simulation_desc_heap, &result.resources_and_views, (u8*)circ_data.data(), circ_data.size() * sizeof(vertex), 64);
 		buffer_idex idxs		= buffer_idex	::	create 	(ctx->g_device, result.arena, &result.simulation_desc_heap, &result.resources_and_views, (u8*)circ_idc.data(), circ_idc.size() * sizeof(u32), particle_count, 65);
 		buffer_1d 	matrices 	= buffer_1d		::	create	(ctx->g_device, result.arena, &result.simulation_desc_heap, &result.resources_and_views, particle_count, sizeof(mat4), (u8*)mtx_data, 0);
-
-		// NOTE(DH): Push resources in mem arena
-		auto cbuff_ptr 	= result.arena.push_data(cbuff);
-		auto mesh_ptr 	= result.arena.push_data(mesh);
-		auto idx_ptr 	= result.arena.push_data(idxs);
-		auto mtx_ptr 	= result.arena.push_data(matrices);
+		buffer_1d 	vel_buf 	= buffer_1d		::	create	(ctx->g_device, result.arena, &result.simulation_desc_heap, &result.resources_and_views, particle_count, sizeof(v2), (u8*)vel_data, 1);
 
 		// NOTE(DH): Create bindings, also need to remember that the order MATTER!
 		auto binds = mk_bindings()
-			.bind_buffer<false, false, false>	(idx_ptr)
-			.bind_buffer<false, false, false>	(mesh_ptr)
-			.bind_buffer<false, true, false>	(mtx_ptr)
-			.bind_buffer<false, true, false>	(cbuff_ptr);
+			.bind_buffer<false, false, false>	(result.arena.push_data(idxs))
+			.bind_buffer<false, false, false>	(result.arena.push_data(mesh))
+			.bind_buffer<false, true, false>	(result.arena.push_data(matrices))
+			.bind_buffer<false, true, false>	(result.arena.push_data(vel_buf))
+			.bind_buffer<false, true, false>	(result.arena.push_data(cbuff2))
+			.bind_buffer<false, true, false>	(result.arena.push_data(cbuff));
 		
 		auto binds_ar_ptr = result.arena.push_data(binds);
 		auto binds_ptr = *(arena_ptr<void>*)(&binds_ar_ptr);
@@ -721,7 +662,7 @@ inline func initialize_simulation(dx_context *ctx, u32 particle_count, f32 gravi
 		ID3DBlob* compute_shader = compile_shader(ctx->g_device, filename, "CSMain", "cs_5_0");
 
 		render_target2d render_target 	= render_target2d	::create (ctx->g_device, result.arena, &result.simulation_desc_heap, &result.resources_and_views, ctx->viewport.Width, ctx->viewport.Height, 0);
-		buffer_1d 		possns 			= buffer_1d			::create (ctx->g_device, result.arena, &result.simulation_desc_heap, &result.resources_and_views, particle_count, sizeof(v4), (u8*)p_n_vs, 1);
+		buffer_1d 		possns 			= buffer_1d			::create (ctx->g_device, result.arena, &result.simulation_desc_heap, &result.resources_and_views, particle_count, sizeof(v2), (u8*)p_n_vs, 1);
 		buffer_1d 		dnsts 			= buffer_1d			::create (ctx->g_device, result.arena, &result.simulation_desc_heap, &result.resources_and_views, particle_count, sizeof(f32), (u8*)densities, 2);
 		// buffer_1d 		prprts 			= buffer_1d			::create (ctx->g_device, result.arena, &result.simulation_desc_heap, &result.resources_and_views, width * height, sizeof(f32), (u8*)final_grad, 3);
 		buffer_1d 		prprts 			= buffer_1d			::create (ctx->g_device, result.arena, &result.simulation_desc_heap, &result.resources_and_views, particle_count, sizeof(f32), (u8*)prprtes, 3);

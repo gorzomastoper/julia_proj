@@ -321,6 +321,17 @@ V2(f32 x, f32 y)
 	return(Result);
 }
 
+inline v2 
+V2(f32 value)
+{
+	v2 Result;
+	
+	Result.x = value;
+	Result.y = value;
+	
+	return(Result);
+}
+
 inline v3
 V3(f32 x, f32 y, f32 z)
 {
@@ -441,6 +452,7 @@ Clamp01MapToRange(f32 Min, f32 t, f32 Max)
 inline f32
 SafeRatioN(f32 Numerator, f32 Divisor, f32 N)
 {
+	f32 epsilon = 1e-6;
 	f32 Result = N;
 	
 	if(Divisor != 0.0f)
@@ -625,6 +637,14 @@ inline v2
 Lerp(v2 A, f32 t, v2 B)
 {
 	v2 Result = (1.0f - t)*A + t*B;
+	
+	return(Result);
+}
+
+inline v2
+normalize(v2 A)
+{
+	v2 Result = A * (SafeRatio0(1.0f, Length(A)));
 	
 	return(Result);
 }

@@ -1,4 +1,7 @@
 /.vscode
-/bin
-/libs
+/bin/.vs
+*.ilk
+*.ini
+*.pdb
+*.exe
 *.lib

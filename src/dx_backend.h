@@ -387,6 +387,7 @@ public:
 
 struct dx_context
 {
+	u32 update_counter;
 	ID3D12Device2* 				g_device;
 	ID3D12CommandQueue* 		g_command_queue;
 	IDXGISwapChain4* 			g_swap_chain;
