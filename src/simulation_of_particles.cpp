@@ -1,5 +1,6 @@
 #include "simulation_of_particles.h"
 #include <algorithm>
+#include <cfloat>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -365,7 +366,7 @@ float example_function(v2 pos) {
 	return cos(pos.y - 3 + sin(pos.x));
 }
 
-inline func particle_simulation::simulation_step(f32 delta_time, u32 width, u32 height) -> void {
+inline func particle_simulation::simulation_step(f32 delta_time, u32 width, u32 height, v2 mouse_pos, bool is_left_mouse, bool is_right_mouse) -> void {
 	this->sim_data_counter++;
 	this->delta_time = delta_time;
 	this->info_for_cshader.max_velocity = max_velocity;
@@ -376,9 +377,22 @@ inline func particle_simulation::simulation_step(f32 delta_time, u32 width, u32 
 	auto velocities = arena.get_array(this->velocities);
 	auto predicted_positions = arena.get_array(this->predicted_positions);
 
+	f32 aspect = (f32)width / (f32)height;
+	f32 scale = 5.0f;
+	v2 mouse_centered = V2((-mouse_pos.x + (width / 2)), mouse_pos.y - (height / 2));
+	mat4 MV = translation_matrix(V4(V3(mouse_centered, 1.0f), 1.0f)) * screen_to_ndc(width, height, scale, aspect);
+	v4 ndc_mouse_pos = V4(V3(mouse_centered, 1.0f), 1.0f) * MV;
+	// ndc_mouse_pos = camera * ndc_mouse_pos;
+	// mat4 view = (translation_matrix(V3(mouse_pos, 1.0f)) * camera);
+
 	for(u32 i = 0 ; i < this->particles.count; ++i) {
 		velocities[i] += V2(0.0, 1.0f) * gravity * delta_time;
 		predicted_positions[i] = positions[i] + velocities[i] * (1.0f / 120.0f);
+
+		if(is_left_mouse)
+			velocities[i] += interaction_force(ndc_mouse_pos.xy, this->info_for_cshader.pull_push_radius, this->info_for_cshader.pull_push_strength, i);
+		else if (is_right_mouse)
+			velocities[i] += interaction_force(ndc_mouse_pos.xy, this->info_for_cshader.pull_push_radius, -this->info_for_cshader.pull_push_strength, i);
 	}
 
 	// u32 i = 0;
@@ -437,7 +451,20 @@ inline func particle_simulation::simulation_step(f32 delta_time, u32 width, u32 
 }
 
 inline func particle_simulation::interaction_force(v2 input_pos, f32 radius, f32 strength, u32 particle_idx) -> v2 {
-	
+	auto pos_array = arena.get_array(positions);
+	auto vel_array = arena.get_array(velocities);
+	v2 interaction_force = {};
+	v2 offset = input_pos - pos_array[particle_idx];
+	f32 sqr_dst = Inner(offset, offset);
+
+	if(sqr_dst < radius * radius) {
+		f32 dst = sqrt(sqr_dst);
+		v2 dir_to_input_point = (dst <= FLT_EPSILON) ? V2(0.0f) : offset * (1.0f / dst);
+		f32 centre_t = 1.0f - (dst / radius);
+		interaction_force += (dir_to_input_point * strength - vel_array[particle_idx]) * centre_t;
+	}
+
+	return interaction_force;
 }
 
 inline func initialize_simulation(dx_context *ctx, u32 particle_count, f32 gravity, f32 collision_damping) -> particle_simulation {

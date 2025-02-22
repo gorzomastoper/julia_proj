@@ -216,7 +216,7 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 						if (lag >= fixed_delta_time) {
 							for(u8 i = 0; i < sim_substeps; ++i) {
 								f32 substep_delta_time = fixed_delta_time / sim_substeps;
-								sim_data->simulation_step(substep_delta_time, width, height);
+								sim_data->simulation_step(substep_delta_time, width, height, V2(ImGui::GetMousePos().x, ImGui::GetMousePos().y), ImGui::IsMouseDown(ImGuiMouseButton_Left), ImGui::IsMouseDown(ImGuiMouseButton_Right));
 							}
 							lag -= fixed_delta_time;
 						}
@@ -253,7 +253,9 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 							ImGui::SliderFloat(VAR_NAME(sim_data->max_velocity), &sim_data->max_velocity, 0.01f, 10.0f);
 							ImGui::SliderFloat(VAR_NAME(sim_data->bounds_size.x), &sim_data->bounds_size.x, 1.0f, (f32)width);
 							ImGui::SliderFloat(VAR_NAME(sim_data->bounds_size.y), &sim_data->bounds_size.y, 1.0f, (f32)height);
-							ImGui::SliderFloat(VAR_NAME(sim_data->info_for_cshader.smoothing_radius), &sim_data->info_for_cshader.smoothing_radius, 0.0f, 10.0f);
+							ImGui::SliderFloat(VAR_NAME(smoothing_radius), &sim_data->info_for_cshader.smoothing_radius, 0.0f, 10.0f);
+							ImGui::SliderFloat(VAR_NAME(pull_push_radius), &sim_data->info_for_cshader.pull_push_radius, 0.0f, 10.0f);
+							ImGui::SliderFloat(VAR_NAME(pull_push_strength), &sim_data->info_for_cshader.pull_push_strength, 0.0f, 10.0f);
 							ImGui::ColorPicker4("Color a", (f32*)&sim_data->info_for_cshader.color_a);
 							ImGui::ColorPicker4("Color b", (f32*)&sim_data->info_for_cshader.color_b);
 							ImGui::ColorPicker4("Color c", (f32*)&sim_data->info_for_cshader.color_c);

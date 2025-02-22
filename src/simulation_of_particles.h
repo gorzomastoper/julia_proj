@@ -26,7 +26,11 @@ struct particles_info {
 	v4 color_a;
 	v4 color_b;
 	v4 color_c;
-	v4 padding[12];
+	f32 pull_push_strength;
+	f32 pull_push_radius;
+	f32 ign1;
+	f32 ign2;
+	v4 padding[11];
 };
 static_assert((sizeof(particles_info) % 256) == 0, "Constant Buffer size must be 256-byte aligned");
 
@@ -68,7 +72,7 @@ struct particle_simulation {
 	inline func calculate_density(v2 sample_point, f32 smoothing_radius) -> f32;
 	inline func calculate_property(v2 sample_point, f32 smoothing_radius) -> f32;
 	inline func calculate_pressure_force(u32 particle_idx, f32 smoothing_radius) -> v2;
-	inline func simulation_step(f32 delta_time, u32 width, u32 height) -> void;
+	inline func simulation_step(f32 delta_time, u32 width, u32 height, v2 mouse_pos, bool is_left_mouse, bool is_right_mouse) -> void;
 	inline func update_spatial_lookup(f32 radius) -> void;
 	inline func interaction_force(v2 input_pos, f32 radius, f32 strength, u32 particle_idx) -> v2;
 	inline func foreach_point_within_radius(f32 dt, v2 sample_point, u8* data, void(*lambda)(particle_simulation *sim, u32 particle_idx, f32 dt, f32 gravity, u8* data)) -> void;

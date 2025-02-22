@@ -1383,10 +1383,10 @@ operator*(mat4 A, v4 B)
 {
 	v4 Result;
 	
-	Result.x = B.x * A.Value1_1 + B.y * A.Value1_2 + B.z * A.Value1_3 + B.w * A.Value1_4;
-	Result.y = B.x * A.Value2_1 + B.y * A.Value2_2 + B.z * A.Value2_3 + B.w * A.Value2_4;
-	Result.z = B.x * A.Value3_1 + B.y * A.Value3_2 + B.z * A.Value3_3 + B.w * A.Value3_4;
-	Result.w = B.x * A.Value4_1 + B.y * A.Value4_2 + B.z * A.Value4_3 + B.w * A.Value4_4;
+	Result.x = (B.x * A.Value1_1) + (B.y * A.Value1_2) + (B.z * A.Value1_3) + (B.w * A.Value1_4);
+	Result.y = (B.x * A.Value2_1) + (B.y * A.Value2_2) + (B.z * A.Value2_3) + (B.w * A.Value2_4);
+	Result.z = (B.x * A.Value3_1) + (B.y * A.Value3_2) + (B.z * A.Value3_3) + (B.w * A.Value3_4);
+	Result.w = (B.x * A.Value4_1) + (B.y * A.Value4_2) + (B.z * A.Value4_3) + (B.w * A.Value4_4);
 	
 	return Result;
 }
@@ -1396,10 +1396,10 @@ operator*(v4 A, mat4 B)
 {
 	v4 Result;
 	
-	Result.x = A.x * B.Value1_1 + A.y * B.Value2_1 * A.z * B.Value3_1 + A.w * B.Value4_1;
-	Result.y = A.x * B.Value1_2 + A.y * B.Value2_2 * A.z * B.Value3_2 + A.w * B.Value4_2;
-	Result.z = A.x * B.Value1_3 + A.y * B.Value2_3 * A.z * B.Value3_3 + A.w * B.Value4_3;
-	Result.w = A.x * B.Value1_4 + A.y * B.Value2_4 * A.z * B.Value3_4 + A.w * B.Value4_4;
+	Result.x = (A.x * B.Value1_1) + (A.y * B.Value2_1) + (A.z * B.Value3_1) + (A.w * B.Value4_1);
+	Result.y = (A.x * B.Value1_2) + (A.y * B.Value2_2) + (A.z * B.Value3_2) + (A.w * B.Value4_2);
+	Result.z = (A.x * B.Value1_3) + (A.y * B.Value2_3) + (A.z * B.Value3_3) + (A.w * B.Value4_3);
+	Result.w = (A.x * B.Value1_4) + (A.y * B.Value2_4) + (A.z * B.Value3_4) + (A.w * B.Value4_4);
 	
 	return Result;
 }
@@ -1479,10 +1479,18 @@ inline func translation_matrix(v3 target_pos) -> mat4 {
 	return result;
 }
 
-inline func screen_to_ndc(u32 width, u32 height) -> mat4 {
+inline func translation_matrix(v4 target_pos) -> mat4 {
 	mat4 result = Identity();
-	result.Value1_1 = 2.0f / width; result.Value1_4 = -1.0f;
-	result.Value2_2 = 2.0f / height; result.Value2_4 = -1.0f;
+	result.Value1_4 = target_pos.x;
+	result.Value2_4 = target_pos.y;
+	result.Value3_4 = target_pos.z;
+	return result;
+}
+
+inline func screen_to_ndc(u32 width, u32 height, f32 scale = 1.0f, f32 aspect = 1.0f) -> mat4 {
+	mat4 result = Identity();
+	result.Value1_1 = 2.0f / width * scale * aspect; result.Value1_4 = -1.0f;
+	result.Value2_2 = 2.0f / height * scale; result.Value2_4 = -1.0f;
 	return result;
 }
 
