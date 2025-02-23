@@ -208,6 +208,7 @@ struct render_target2d {
 	u32 register_index;
 	u32 heap_idx;
 	rt_format format;
+	bool copy_screen_content;
 
 	static inline func create (ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u32 width, u32 height, u32 register_idx) -> render_target2d;
 	inline func recreate (ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 width, u32 height) -> render_target2d;
@@ -219,6 +220,7 @@ struct render_target1d {
 	u32 register_index;
 	u32 heap_idx;
 	rt_format format;
+	bool copy_screen_content;
 
 	static inline func create (ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u32 width, u32 register_idx) -> render_target1d;
 	inline func recreate (ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 width) -> render_target1d;
@@ -321,7 +323,8 @@ public:
 			void (*RSZ)(dx_context *context, descriptor_heap* heap, memory_arena *arena, arena_array<resource_and_view> resources_and_views, u32 width, u32 height, arena_ptr<void> bindings), 
 			void (*GBT)(dx_context *context, descriptor_heap* heap, memory_arena *arena, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings), 
 			void (*UPD)(dx_context *context, descriptor_heap* heap, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings),
-			void (*CTS)(dx_context *context, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings)) 
+			void (*CTS)(dx_context *context, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings), 
+			void (*CFS)(dx_context *context, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings)) 
 				-> compute_pipeline { 
 		compute_pipeline result 		= {};
 		result.bindings 				= bindings;
@@ -329,6 +332,7 @@ public:
 		result.generate_binding_table 	= GBT;
 		result.update					= UPD;
 		result.copy_to_screen_rt		= CTS;
+		result.copy_screen_to_render_target	= CFS;
 		return result;
 	};
 
@@ -339,6 +343,8 @@ public:
 	void (*generate_binding_table)(dx_context *context, descriptor_heap* heap, memory_arena *arena, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings);
 
 	void (*copy_to_screen_rt)(dx_context *context, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings);
+
+	void (*copy_screen_to_render_target)(dx_context *context, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings);
 
 	template<typename T>
 	inline func create_root_sig	(binding<T> bindings, ID3D12Device2 *device, memory_arena *arena) 	-> compute_pipeline;
@@ -1050,6 +1056,42 @@ struct CTRT<t_list_cons<B, U, CP, T, TS>> {
 template<>
 struct CTRT<t_list_nil> {
 	static func copy_to_render_target(t_list_nil list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
+		return;
+	}
+};
+
+template<typename T>
+struct CRTS {
+	static func copy_screen_to_render_target (T list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void { static_assert(!1, "");};
+};
+
+template<bool B, bool U, typename TS>
+struct CRTS<t_list_cons<B, U, true, render_target2d, TS>> {
+	static func copy_screen_to_render_target(t_list_cons<B, U, true, render_target2d, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
+		render_target2d *rt2_desc = arena->get_ptr(list.el);
+		resource_and_view *r_n_v = &arena->get_array(resources_and_views)[rt2_desc->res_and_view_idx];
+
+		ID3D12Resource* screen_buffer = ctx->g_back_buffers[ctx->g_frame_index];
+		record_resource_barrier(1,  barrier_transition(screen_buffer, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_SOURCE), cmd_list);
+		record_resource_barrier(1,  barrier_transition(r_n_v->addr, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST), cmd_list);
+		cmd_list->CopyResource(r_n_v->addr, screen_buffer);
+		record_resource_barrier(1,  barrier_transition(r_n_v->addr, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COMMON), cmd_list);
+		record_resource_barrier(1,  barrier_transition(screen_buffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_PRESENT), cmd_list);
+
+		CRTS<TS>::copy_screen_to_render_target(list.tail, ctx, arena, resources_and_views, cmd_list);
+	}
+};
+
+template<bool B, bool U, bool CP, typename T, typename TS>
+struct CRTS<t_list_cons<B, U, CP, T, TS>> {
+	static func copy_screen_to_render_target(t_list_cons<B, U, CP, T, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
+		CRTS<TS>::copy_screen_to_render_target(list.tail, ctx, arena, resources_and_views, cmd_list);
+	}
+};
+
+template<>
+struct CRTS<t_list_nil> {
+	static func copy_screen_to_render_target(t_list_nil list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
 		return;
 	}
 };

@@ -278,6 +278,7 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 						// auto compute_cmd_list = generate_compute_command_buffer(&directx_context, directx_context.viewport.Width, directx_context.viewport.Height);
 						// auto draw_with_cmpt = generate_compute_command_buffer(&directx_context, sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, sim_data->simulation_desc_heap, sim_data->rndr_stage, width, height);
 						auto draw_circles 	= generate_command_buffer(&directx_context, sim_data->arena, sim_data->cmd_list, sim_data->simulation_desc_heap, sim_data->rndr_stage);
+						// auto fxaa 			= generate_compute_fxaa_CB(&directx_context, sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, sim_data->simulation_desc_heap, sim_data->rndr_stage, width, height);
 						auto imgui_cmd_list = generate_imgui_command_buffer(&directx_context);
 						
 						graph_pipeline.update(&directx_context, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, graph_pipeline.bindings);
@@ -339,10 +340,13 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 
 					render_pass			graph_pass		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 0);
 					render_pass			comp_pass		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 1);
+					render_pass			comp_pass2		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 2);
 					graphic_pipeline 	graph_pipeline 	= sim_data->arena.load(graph_pass.curr_pipeline_g);
 					compute_pipeline	compute_pipeline = sim_data->arena.load(comp_pass.curr_pipeline_c);
+					struct compute_pipeline	compute_pipeline2 = sim_data->arena.load(comp_pass2.curr_pipeline_c);
 					graph_pipeline.resize(&directx_context, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, main_window_info.width, main_window_info.height, graph_pipeline.bindings);
 					compute_pipeline.resize(&directx_context, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, main_window_info.width, main_window_info.height, compute_pipeline.bindings);
+					compute_pipeline2.resize(&directx_context, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, main_window_info.width, main_window_info.height, compute_pipeline2.bindings);
 				}
 #else
 				do_redraw(hwnd);
@@ -488,7 +492,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	//NOTE(DH): Full directx initialization
 	directx_context = init_dx(directx_context.g_hwnd);
 
-	auto p_sim = initialize_simulation(&directx_context, 1024, 0.0f, 0.7f);
+	auto p_sim = initialize_simulation(&directx_context, 3248, 0.0f, 0.935f);
 	SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)&p_sim);
 
 	//NOTE(DH): Initialize IMGUI {

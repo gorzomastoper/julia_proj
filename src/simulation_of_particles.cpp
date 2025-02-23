@@ -52,15 +52,15 @@ std::vector<u32> generate_circle_indices(u32 vertices_count) {
 	return result;
 }
 
-static inline func smoothing_kernel(f32 radius, f32 dst) -> f32 {
+static inline func smoothing_kernel(f32 dst, f32 radius) -> f32 {
 	if(dst >= radius) return 0;
 	f32 volume = (std::numbers::pi * pow(radius, 4.0f)) / 6.0f;
-	return SafeRatio0((radius - dst) * (radius - dst), volume);
+	return(radius - dst) * (radius - dst) / volume;
 }
 
 static inline func smoothing_kernel_derivative(f32 dst, f32 radius) -> f32 {
 	if(dst >= radius) return 0;
-	f32 f = radius * radius - dst * dst;
+	// f32 f = radius * radius - dst * dst;
 	float scale = 12 / (std::numbers::pi * pow(radius, 4.0f));
 	return (dst - radius) * scale;
 }
@@ -132,7 +132,7 @@ inline func particle_simulation::foreach_point_within_radius(f32 dt, v2 sample_p
 		}
 	}
 
-	printf("num of iters: %u\n", num_of_iters);
+	// printf("num of iters: %u\n", num_of_iters);
 }
 
 inline func particle_simulation::update_spatial_lookup(f32 radius) -> void {
@@ -169,24 +169,43 @@ inline func calculate_shared_pressure(f32 density_a, f32 density_b, f32 target_d
 }
 
 inline func particle_simulation::calculate_pressure_force(u32 particle_idx, f32 smoothing_radius) -> v2 {
-	auto particles = arena.get_array(this->particles);
-	auto positions = arena.get_array(this->positions);
 	auto densities = arena.get_array(this->densities);
 
 	v2 pressure_force = {};
 
-	for(u32 i = 0 ; i < this->particles.count; ++i) {
-		if(particle_idx == i) continue;
+	auto indices 		= arena.get_array(this->start_indices);
+	auto spatial_lookup = arena.get_array(this->spatial_lookup);
+	auto points			= arena.get_array(this->predicted_positions); // NOTE(DH): We need to use here predicted positions!!!
 
-		v2 offset = positions[i] - positions[particle_idx];
-		f32 dst = Length(offset);
-		v2 dir = (dst == 0.0f) ?  get_random_dir() : offset * (SafeRatio0(1.0f, dst));
+	v2i centre = position_to_cell_coord(points[particle_idx], smoothing_radius);
+	f32 sqr_radius = smoothing_radius * smoothing_radius;
 
-		f32 slope = smoothing_kernel_derivative(dst, smoothing_radius);
-		f32 density = densities[i];
-		f32 shared_pressure = calculate_shared_pressure(density, densities[particle_idx], this->target_density, this->pressure_multiplier);
-		pressure_force.x += SafeRatio0(shared_pressure * dir.x * slope, density);
-		pressure_force.y += SafeRatio0(shared_pressure * dir.y * slope, density);
+	auto cell_offsets = arena.get_array(this->cell_offsets);
+
+	for(u32 i = 0; i < this->cell_offsets.count; ++i) {
+		u32 key = get_key_from_hash(hash_cell(centre.x + cell_offsets[i].x, centre.y + cell_offsets[i].y), this->spatial_lookup.count);
+		i32 cell_start_index = indices[key];
+
+		for(i32 j = cell_start_index; j < this->spatial_lookup.count; ++j) {
+			if(spatial_lookup[j].cell_key != key) break;
+
+			u32 particle_index  = spatial_lookup[j].particle_index;
+			v2 offset_to_neighbour = points[particle_index] - points[particle_idx];
+			f32 sqr_dst = Inner(offset_to_neighbour, offset_to_neighbour);
+
+			// NOTE(DH): Test if the point is inside the radius
+			if(sqr_dst <= sqr_radius) {
+				if(particle_idx == particle_index) continue;
+
+				f32 dst = sqrt(sqr_dst);
+				v2 dir = (dst < FLT_EPSILON && dst > 0.0f) ?  get_random_dir() : offset_to_neighbour / dst;
+
+				f32 slope = smoothing_kernel_derivative(dst, smoothing_radius);
+				f32 density = densities[particle_index];
+				f32 shared_pressure = calculate_shared_pressure(density, densities[particle_idx], this->target_density, this->pressure_multiplier);
+				pressure_force += shared_pressure * dir * slope / density;
+			}
+		}
 	}
 
 	return pressure_force;
@@ -194,14 +213,33 @@ inline func particle_simulation::calculate_pressure_force(u32 particle_idx, f32 
 
 inline func particle_simulation::calculate_density(v2 sample_point, f32 smoothing_radius) -> f32 {
 	auto positions = arena.get_array(this->positions);
+	auto indices 		= arena.get_array(this->start_indices);
+	auto spatial_lookup = arena.get_array(this->spatial_lookup);
 
 	f32 density = 0;
-	f32 mass = 1.0f;
 
-	for(u32 i = 0 ; i < this->particles.count; ++i) {
-		f32 dst = Length(positions[i] - sample_point);
-		f32 influence = smoothing_kernel(smoothing_radius, dst);
-		density += mass * influence;
+	auto cell_offsets = arena.get_array(this->cell_offsets);
+	v2i centre = position_to_cell_coord(sample_point, smoothing_radius);
+	f32 sqr_radius = Square(smoothing_radius);
+
+	for(u32 i = 0; i < this->cell_offsets.count; ++i) {
+		u32 key = get_key_from_hash(hash_cell(centre.x + cell_offsets[i].x, centre.y + cell_offsets[i].y), this->spatial_lookup.count);
+		i32 cell_start_index = indices[key];
+
+		for(i32 j = cell_start_index; j < this->spatial_lookup.count; ++j) {
+			if(spatial_lookup[j].cell_key != key) break;
+
+			u32 particle_index  = spatial_lookup[j].particle_index;
+			v2 offset_to_neighbour = positions[particle_index] - sample_point;
+			f32 sqr_dst = Inner(offset_to_neighbour, offset_to_neighbour);
+
+			// NOTE(DH): Test if the point is inside the radius
+			if(sqr_dst <= sqr_radius) {
+				f32 dst = sqrt(sqr_dst);
+				f32 influence = smoothing_kernel(dst, smoothing_radius);
+				density += influence;
+			}
+		}
 	}
 
 	return density;
@@ -305,6 +343,46 @@ ID3D12GraphicsCommandList* generate_compute_command_buffer(dx_context *ctx, memo
 	return cmd_list;
 }
 
+ID3D12GraphicsCommandList* generate_compute_fxaa_CB(dx_context *ctx, memory_arena arena, arena_array<resource_and_view> r_n_v, ID3D12GraphicsCommandList *cmd_list, descriptor_heap heap, rendering_stage rndr_stage, u32 width, u32 height)
+{
+	auto cmd_allocator = get_command_allocator(ctx->g_frame_index, ctx->g_command_allocators);
+	auto srv_dsc_heap = heap;
+
+	rendering_stage 	stage 		= rndr_stage;
+	render_pass 		rndr_pass	= arena.load_by_idx(stage.render_passes.ptr, 2);
+	compute_pipeline	c_p_1 		= arena.load(rndr_pass.curr_pipeline_c);
+
+	//NOTE(DH): Reset command allocators for the next frame
+	// record_reset_cmd_allocator(cmd_allocator);
+
+	//NOTE(DH): Reset command lists for the next frame
+	// record_reset_cmd_list(cmd_list, cmd_allocator, c_p_1.state);
+	cmd_list->SetName(L"COMPUTE COMMAND LIST");
+
+	// NOTE(DH): Set root signature and pipeline state
+	cmd_list->SetComputeRootSignature(c_p_1.root_signature);
+	cmd_list->SetPipelineState(c_p_1.state);
+
+	ID3D12DescriptorHeap* ppHeaps[] = { srv_dsc_heap.addr};
+	record_dsc_heap(cmd_list, ppHeaps, _countof(ppHeaps));
+
+	c_p_1.generate_binding_table(ctx, &srv_dsc_heap, &arena, cmd_list, c_p_1.bindings);
+
+	// Copy from screen to buffer
+	c_p_1.copy_screen_to_render_target(ctx, &arena, r_n_v, cmd_list, c_p_1.bindings);
+
+	u32 dispatch_X = (width / 8) + 1;
+	u32 dispatch_y = (height / 8) + 1;
+
+	cmd_list->Dispatch(dispatch_X, dispatch_y, 1);
+
+	// 4.) Copy result from back buffer to screen
+	c_p_1.copy_to_screen_rt(ctx, &arena, r_n_v, cmd_list, c_p_1.bindings);
+
+	//Finally executing the filled Command List into the Command Queue
+	return cmd_list;
+}
+
 ID3D12GraphicsCommandList* generate_command_buffer(dx_context *context, memory_arena arena, ID3D12GraphicsCommandList *cmd_list, descriptor_heap heap, rendering_stage rndr_stage)
 {
 	auto cmd_allocator = get_command_allocator(context->g_frame_index, context->g_command_allocators);
@@ -395,15 +473,16 @@ inline func particle_simulation::simulation_step(f32 delta_time, u32 width, u32 
 			velocities[i] += interaction_force(ndc_mouse_pos.xy, this->info_for_cshader.pull_push_radius, -this->info_for_cshader.pull_push_strength, i);
 	}
 
+	update_spatial_lookup(this->info_for_cshader.smoothing_radius);
+	
 	// u32 i = 0;
-	// std::for_each(std::execution::seq, velocities, velocities + this->velocities.count, [this, &i, delta_time, positions, predicted_positions, dnsties](v2& elem){
+	// std::for_each(std::execution::par, velocities, velocities + this->velocities.count, [this, &i, delta_time, positions, predicted_positions, dnsties](v2& elem){
 	// 	elem += V2(0.0, 1.0f) * gravity * delta_time;
 	// 	predicted_positions[i] = positions[i] + elem * delta_time;
 	// 	dnsties[i] = calculate_density(predicted_positions[i], this->info_for_cshader.smoothing_radius);
 	// 	++i;
 	// });
 
-	// update_spatial_lookup(this->info_for_cshader.smoothing_radius);
 
 	// auto offsets = arena.get_array(this->cell_offsets);
 
@@ -423,16 +502,24 @@ inline func particle_simulation::simulation_step(f32 delta_time, u32 width, u32 
 
 	for(u32 i = 0 ; i < this->particles.count; ++i) {
 		v2 pressure_force = calculate_pressure_force(i, this->info_for_cshader.smoothing_radius);
-		v2 pressure_acceleration = pressure_force * (1.0f /  dnsties[i]);
+		v2 pressure_acceleration = pressure_force /  dnsties[i];
 		velocities[i] += pressure_acceleration * delta_time;
+
+		// if(Length(velocities[i]) > this->max_velocity) {
+		// 	velocities[i] = normalize(velocities[i]) * this->max_velocity;
+		// }
 	}
 
 	// start = std::chrono::high_resolution_clock::now();
 	// i = 0;
-	// std::for_each(std::execution::seq, velocities, velocities + this->velocities.count, [this, &i, delta_time, dnsties](v2& elem){
+	// std::for_each(std::execution::par, velocities, velocities + this->velocities.count, [this, &i, delta_time, dnsties](v2& elem){
 	// 	v2 pressure_force = calculate_pressure_force(i, this->info_for_cshader.smoothing_radius);
 	// 	v2 pressure_acceleration = pressure_force * (1.0f /  dnsties[i]);
 	// 	elem += pressure_acceleration * delta_time;
+
+	// 	if(Length(elem) > this->max_velocity) {
+	// 		elem = normalize(elem) * this->max_velocity;
+	// 	}
 	// 	++i;
 	// });
 	// end = std::chrono::high_resolution_clock::now();
@@ -443,10 +530,6 @@ inline func particle_simulation::simulation_step(f32 delta_time, u32 width, u32 
 		positions[i] += velocities[i] * delta_time;
 		resolve_collisions(&positions[i], &velocities[i], particles[i].particle_size);
 		arena.get_array(matrices)[i] = translation_matrix(V3(positions[i], 0.0f));
-
-		if(Length(velocities[i]) > this->max_velocity) {
-			velocities[i] = normalize(velocities[i]) * this->max_velocity;
-		}
 	}
 }
 
@@ -492,8 +575,8 @@ inline func initialize_simulation(dx_context *ctx, u32 particle_count, f32 gravi
 	result.final_gradient 		= result.arena.alloc_array<f32>(2560 * 1440);
 	result.final_gradient.count = 2560 * 1440;
 
-	result.cell_offsets			= result.arena.alloc_array<v2i>(particle_count);
-	result.cell_offsets.count	= particle_count;
+	result.cell_offsets			= result.arena.alloc_array<v2i>(9); //3 * 3 cells
+	result.cell_offsets.count	= 9;
 
 	result.spatial_lookup		= result.arena.alloc_array<spatial_data>(particle_count);
 	result.spatial_lookup.count	= particle_count;
@@ -507,7 +590,10 @@ inline func initialize_simulation(dx_context *ctx, u32 particle_count, f32 gravi
 
 	result.info_for_cshader		= {};
 	result.info_for_cshader.particle_count = particle_count;
-	result.info_for_cshader.smoothing_radius = 0.3f;
+	result.info_for_cshader.smoothing_radius = 0.3;
+	result.info_for_cshader.max_velocity = 1.0f;
+	result.target_density = 1.5f;
+	result.pressure_multiplier = 0.0f;
 
 	result.cmd_list 			= create_command_list<ID3D12GraphicsCommandList>(ctx, D3D12_COMMAND_LIST_TYPE_DIRECT, nullptr, true);
 	result.simulation_desc_heap = allocate_descriptor_heap(ctx->g_device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, 32);
@@ -550,75 +636,25 @@ inline func initialize_simulation(dx_context *ctx, u32 particle_count, f32 gravi
 		prtcles[i].pos_and_velocity_idx = i;
 		prtcles[i].particle_size = particle_size;
 
-		prprtes[i] = example_function(p_n_vs[i]);
-
-		velocities[i] += V2(0.0, 1.0f) * gravity * result.delta_time;
-		predicted_positions[i] = p_n_vs[i] + velocities[i] * result.delta_time;
-
-		// cell_offsets[i] = V2i(((i32)i % (i32)particles_row) - (i32)(particles_row / 2), -(i32)(particle_per_col) + ((i32)i / (i32)(particles_row / 2)));
-		// p_n_vs[i].x = cell_offsets[i].x;
-		// p_n_vs[i].y = cell_offsets[i].y;
+		// velocities[i] += V2(0.0, 1.0f) * gravity * result.delta_time;
+		// predicted_positions[i] = p_n_vs[i] + velocities[i] * (1.0f / 120.0f);
 	}
 
-	for(u32 i = 0 ; i < particle_count; ++i) {
-		densities[i] = result.calculate_density(predicted_positions[i], result.info_for_cshader.smoothing_radius);
-	}
+	// NOTE(DH): Initialize cells for gather
+	cell_offsets[0] = V2i(-1, 1);
+	cell_offsets[1] = V2i(0, 1);
+	cell_offsets[2] = V2i(1, 1);
+	cell_offsets[3] = V2i(-1, 0);
+	cell_offsets[4] = V2i(0, 0);
+	cell_offsets[5] = V2i(1, 0);
+	cell_offsets[6] = V2i(-1, -1);
+	cell_offsets[7] = V2i(0, -1);
+	cell_offsets[8] = V2i(1, -1);
 
-	// i32 half_size = particle_count / 2;
-	// for(u32 i = 0; i < half_size; ++i) {
-	// 	for(u32 j = 0 ; j < half_size; ++j) {
-	// 		cell_offsets[j + half_size * i] = V2i(-(half_size / 2) + (i32)j, -(half_size / 2) + (i32)i);
-	// 	}
-	// }
-	
-	// u32 width = 2560;
-	// u32 height = 1440;
-	// f32 aspect = ((f32)width / (f32)height);
-	// f32 scale = 5.0f;
-	// f32 x_advance = (2.0 / width * scale * aspect);
-	// f32 y_advance = (2.0 / height * scale);
-	
-	// for(u32 i = 0; i < height; ++i) {
-	// 	for(u32 j = 0; j < width; ++j) {
-	// 		final_grad[j + (i32)width * i] = result.calculate_density(V2(-scale * aspect + ((f32)j * x_advance), -scale + ((f32)i * y_advance)), 0.6f);
-	// 		if(final_grad[j + (i32)width * i] > 0.5f) {
-	// 			int ar = 5;
-	// 		}
-	// 	}
-	// }
+	// result.update_spatial_lookup(result.info_for_cshader.smoothing_radius);
 
-	// u32 width = 2560;
-	// u32 height = 1440;
-	// f32 aspect = ((f32)width / (f32)height);
-	// mat4 view_matrix = look_at_matrix(V3(0.0f, 0.0f, 1.0f), V3(0, 0, 0), V3(0, 1, 0));
-	// mat4 ortho_projection = create_ortho_matrix(1.0f, aspect, 1.0f, -1.0, -1.0, 1.0f, 0.0f, 0.0f) * view_matrix;
-	// f32 x_advance = (2.0 / width);
-	// f32 y_advance = (2.0 / height);
-	// for(u32 i = 0; i < height; ++i) {
-	// 	for(u32 j = 0; j < width; ++j) {
-	// 		v4 converted_pos = ortho_projection * V4(j, i, 0.0f, 1.0f);
-	// 		densities[j + (i32)width * i] = result.calculate_density(converted_pos.xy, 0.6f);
-	// 	}
-	// }
-	
-	// for(u32 i = 0; i < height; ++i) {
-	// 	for(u32 j = 0; j < width; ++j) {
-	// 		v4 converted_pos = ortho_projection * V4(j, i, 0.0f, 1.0f);
-	// 		final_grad[j + (i32)width * i] = result.calculate_property(converted_pos.xy, 0.6f);
-	// 	}
-	// }
-
-
-	// NOTE(DH): Create particles in cols and rows evenly spaced
-	// for(u32 i = 0; i < result.particles.count; ++i) {
-	// 	float x = (i % particles_row - particles_row / 2.0f + 0.5f) * spacing;
-	// 	float y = (i / particles_row - particle_per_col / 2.0f + 0.5f) * spacing;
-		
-	// 	p_n_vs[i].position.x = x;
-	// 	p_n_vs[i].position.y = y;
-
-	// 	prtcles[i].pos_and_velocity_idx = i;
-	// 	prtcles[i].particle_size = particle_size;
+	// for(u32 i = 0 ; i < particle_count; ++i) {
+	// 	densities[i] = result.calculate_density(predicted_positions[i], result.info_for_cshader.smoothing_radius);
 	// }
 
 	WCHAR shader_path[] = L"shaders.hlsl";
@@ -679,7 +715,7 @@ inline func initialize_simulation(dx_context *ctx, u32 particle_count, f32 gravi
 			.finalize			(binds, ctx, &result.arena, result.resources_and_views, ctx->g_device, &result.simulation_desc_heap);
 
 		result.rndr_stage = 
-		rendering_stage::init__(&result.arena, 2)
+		rendering_stage::init__(&result.arena, 3)
 			.bind_graphic_pass(graph_pipeline, &result.arena);
 	}
 
@@ -731,8 +767,65 @@ inline func initialize_simulation(dx_context *ctx, u32 particle_count, f32 gravi
 			CTRT<decltype(binds)::BUF_TS_U>::copy_to_render_target(bnds->data, ctx, arena, resources_and_views, cmd_list);
 		};
 
+		auto copy_screen_to_render_target = [](dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings) {
+			return;
+		};
+
 		compute_pipeline compute_pipeline = 
-		compute_pipeline::init__(binds_ptr, resize, generate_binding_table, update, copy_to_render_target)
+		compute_pipeline::init__(binds_ptr, resize, generate_binding_table, update, copy_to_render_target, copy_screen_to_render_target)
+			.bind_shader		(compute_shader)
+			.create_root_sig	(binds, ctx->g_device, &result.arena)
+			.finalize			(binds, ctx, &result.arena, ctx->resources_and_views, ctx->g_device, &result.simulation_desc_heap);
+
+		result.rndr_stage
+			.bind_compute_pass(compute_pipeline, &result.arena);
+	}
+
+	// NOTE(DH): Compute shader FXAA
+	{
+		WCHAR filename[] = L"fxaa.hlsl";
+		ID3DBlob* compute_shader = compile_shader(ctx->g_device, filename, "CSMain", "cs_5_0");
+
+		render_target2d render_target 	= render_target2d	::create (ctx->g_device, result.arena, &result.simulation_desc_heap, &result.resources_and_views, ctx->viewport.Width, ctx->viewport.Height, 0);
+
+		auto binds = mk_bindings()
+			.bind_buffer<true, false, true>(result.arena.push_data(render_target));
+
+		auto binds_ar_ptr = result.arena.push_data(binds);
+		auto binds_ptr = *(arena_ptr<void>*)(&binds_ar_ptr);
+
+		auto resize = [](dx_context *ctx, descriptor_heap* heap, memory_arena *arena, arena_array<resource_and_view> resources_and_views, u32 width, u32 height, arena_ptr<void> bindings) {
+			arena_ptr<decltype(binds)> bnds_ptr = *(arena_ptr<decltype(binds)>*)&bindings;
+			auto bnds = arena->get_ptr(bnds_ptr);
+			Resize<decltype(binds)::BUF_TS_U>::resize(bnds->data, ctx->g_device, *arena, heap, &resources_and_views, width, height); 
+		};
+
+		auto generate_binding_table = [](dx_context *ctx, descriptor_heap* heap, memory_arena *arena, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings) {
+			arena_ptr<decltype(binds)> bnds_ptr = *(arena_ptr<decltype(binds)>*)&bindings;
+			auto bnds = arena->get_ptr(bnds_ptr);
+			GCBC<decltype(binds)::BUF_TS_U>::bind_root_sig_table(bnds->data, 0, cmd_list, ctx->g_device, heap->addr, arena);
+		};
+
+		auto update = [](dx_context *ctx, descriptor_heap* heap, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings) {
+			arena_ptr<decltype(binds)> bnds_ptr = *(arena_ptr<decltype(binds)>*)&bindings;
+			auto bnds = arena->get_ptr(bnds_ptr);
+			Update<decltype(binds)::BUF_TS_U>::update(bnds->data, ctx, arena, resources_and_views, cmd_list);
+		};
+
+		auto copy_to_render_target = [](dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings) {
+			arena_ptr<decltype(binds)> bnds_ptr = *(arena_ptr<decltype(binds)>*)&bindings;
+			auto bnds = arena->get_ptr(bnds_ptr);
+			CTRT<decltype(binds)::BUF_TS_U>::copy_to_render_target(bnds->data, ctx, arena, resources_and_views, cmd_list);
+		};
+
+		auto copy_screen_to_render_target = [](dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings) {
+			arena_ptr<decltype(binds)> bnds_ptr = *(arena_ptr<decltype(binds)>*)&bindings;
+			auto bnds = arena->get_ptr(bnds_ptr);
+			CRTS<decltype(binds)::BUF_TS_U>::copy_screen_to_render_target(bnds->data, ctx, arena, resources_and_views, cmd_list);
+		};
+
+		compute_pipeline compute_pipeline = 
+		compute_pipeline::init__(binds_ptr, resize, generate_binding_table, update, copy_to_render_target, copy_screen_to_render_target)
 			.bind_shader		(compute_shader)
 			.create_root_sig	(binds, ctx->g_device, &result.arena)
 			.finalize			(binds, ctx, &result.arena, ctx->resources_and_views, ctx->g_device, &result.simulation_desc_heap);

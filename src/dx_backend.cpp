@@ -741,14 +741,18 @@ dx_context init_dx(HWND hwnd)
 			CTRT<decltype(binds)::BUF_TS_U>::copy_to_render_target(bnds->data, ctx, &ctx->mem_arena, resources_and_views, cmd_list);
 		};
 
+		auto copy_screen_to_render_target = [](dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings) {
+			return;
+		};
+
 		compute_pipeline compute_pipeline_pass_01 = 
-		compute_pipeline::init__(binds_ptr, resize, generate_binding_table, update, copy_to_render_target)
+		compute_pipeline::init__(binds_ptr, resize, generate_binding_table, update, copy_to_render_target, copy_screen_to_render_target)
 			.bind_shader		(shader_for_pass_01)
 			.create_root_sig	(binds, result.g_device, &result.mem_arena)
 			.finalize			(binds, &result, &result.mem_arena, result.resources_and_views, result.g_device, &result.compute_stage_heap);
 
 		compute_pipeline compute_pipeline_pass_02 = 
-		compute_pipeline::init__(binds_ptr, resize, generate_binding_table, update, copy_to_render_target)
+		compute_pipeline::init__(binds_ptr, resize, generate_binding_table, update, copy_to_render_target, copy_screen_to_render_target)
 			.bind_shader		(shader_for_pass_02)
 			.create_root_sig	(binds, result.g_device, &result.mem_arena)
 			.finalize			(binds, &result, &result.mem_arena, result.resources_and_views, result.g_device, &result.compute_stage_heap);

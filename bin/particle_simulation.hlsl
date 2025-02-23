@@ -103,7 +103,7 @@ void CSMain(uint3 dispatchThreadID : SV_DispatchThreadID)
 	if(is_outline) {
 		color = float4(1.0, 1.0, 0.0, 1.0);
 	} else {
-		// color = float4(col, col, col, 1.0);
+		color = float4(col, col, col, 1.0);
 	}
 	
 	buffer[dispatchThreadID.xy] = color;

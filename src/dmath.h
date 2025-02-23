@@ -513,6 +513,14 @@ operator*(v2 B, f32 A)
 }
 
 inline v2 
+operator/(v2 A, f32 B)
+{
+	v2 Result = V2(A.x / B, A.y / B);
+	
+	return(Result);
+}
+
+inline v2 
 operator*(v2 B, v2 A)
 {
 	v2 Result = V2(A.x * B.x, A.y * B.y);
