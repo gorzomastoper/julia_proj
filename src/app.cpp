@@ -197,7 +197,7 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 						particle_simulation* sim_data = (particle_simulation*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
 						directx_context.common_cbuff_data.mouse_pos.xy = sim_data->bounds_size;
 
-						f32 fixed_delta_time = 1.0f / 120.0f;
+						f32 fixed_delta_time = 1.0f / 60.0f;
 						f32 current_time = GetCurrentTime();
 						f32 delta_time = current_time - last_time;
 						last_time = current_time;
@@ -211,7 +211,7 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 						graphic_pipeline 	graph_pipeline 	= sim_data->arena.load(graph_pass.curr_pipeline_g);
 						compute_pipeline	compute_pipeline = sim_data->arena.load(comp_pass.curr_pipeline_c);
 
-						f32 sim_substeps = 3;
+						f32 sim_substeps = 1;
 
 						if (lag >= fixed_delta_time) {
 							for(u8 i = 0; i < sim_substeps; ++i) {
@@ -246,14 +246,16 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 							ImGui::Text("Time Elapsed: %f ", ctx->time_elapsed);
 							ImGui::SliderFloat("Speed multiplier", &ctx->speed_multiplier, 0.1f, 100.0f);
 
-							ImGui::SliderFloat(VAR_NAME(sim_data->gravity), &sim_data->gravity, 0.1f, 10.0f);
-							ImGui::SliderFloat(VAR_NAME(sim_data->collision_damping), &sim_data->collision_damping, 0.01f, 2.0f);
-							ImGui::SliderFloat(VAR_NAME(sim_data->pressure_multiplier), &sim_data->pressure_multiplier, 0.01f, 256.0f);
-							ImGui::SliderFloat(VAR_NAME(sim_data->target_density), &sim_data->target_density, 0.01f, 10.0f);
-							ImGui::SliderFloat(VAR_NAME(sim_data->max_velocity), &sim_data->max_velocity, 0.01f, 10.0f);
-							ImGui::SliderFloat(VAR_NAME(sim_data->bounds_size.x), &sim_data->bounds_size.x, 1.0f, (f32)width);
-							ImGui::SliderFloat(VAR_NAME(sim_data->bounds_size.y), &sim_data->bounds_size.y, 1.0f, (f32)height);
+							ImGui::SliderFloat(VAR_NAME(gravity), &sim_data->gravity, 0.1f, 10.0f);
+							ImGui::SliderFloat(VAR_NAME(collision_damping), &sim_data->collision_damping, 0.01f, 2.0f);
+							ImGui::SliderFloat(VAR_NAME(pressure_multiplier), &sim_data->info_for_cshader.pressure_multiplier, 0.01f, 256.0f);
+							ImGui::SliderFloat(VAR_NAME(near_pressure_multiplier), &sim_data->info_for_cshader.near_pressure_multiplier, 0.01f, 256.0f);
+							ImGui::SliderFloat(VAR_NAME(target_density), &sim_data->target_density, 0.01f, 10.0f);
+							ImGui::SliderFloat(VAR_NAME(max_velocity), &sim_data->info_for_cshader.max_velocity, 0.01f, 10.0f);
+							ImGui::SliderFloat(VAR_NAME(bounds_size.x), &sim_data->bounds_size.x, 1.0f, (f32)width);
+							ImGui::SliderFloat(VAR_NAME(bounds_size.y), &sim_data->bounds_size.y, 1.0f, (f32)height);
 							ImGui::SliderFloat(VAR_NAME(smoothing_radius), &sim_data->info_for_cshader.smoothing_radius, 0.0f, 10.0f);
+							ImGui::SliderFloat(VAR_NAME(viscosity_strength), &sim_data->info_for_cshader.viscosity_strength, 0.0f, 10.0f);
 							ImGui::SliderFloat(VAR_NAME(pull_push_radius), &sim_data->info_for_cshader.pull_push_radius, 0.0f, 10.0f);
 							ImGui::SliderFloat(VAR_NAME(pull_push_strength), &sim_data->info_for_cshader.pull_push_strength, 0.0f, 10.0f);
 							ImGui::ColorPicker4("Color a", (f32*)&sim_data->info_for_cshader.color_a);
@@ -492,7 +494,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	//NOTE(DH): Full directx initialization
 	directx_context = init_dx(directx_context.g_hwnd);
 
-	auto p_sim = initialize_simulation(&directx_context, 3248, 0.0f, 0.935f);
+	auto p_sim = initialize_simulation(&directx_context, 100, 0.0f, 0.935f);
+	// auto p_sim = initialize_simulation(&directx_context, 3248, 0.0f, 0.935f);
 	SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)&p_sim);
 
 	//NOTE(DH): Initialize IMGUI {

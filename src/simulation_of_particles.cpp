@@ -52,17 +52,56 @@ std::vector<u32> generate_circle_indices(u32 vertices_count) {
 	return result;
 }
 
+static inline func spiky_pow_2_scaling_factor(f32 smoothing_radius) -> f32 {
+	return 6.0f / (std::numbers::pi * pow(smoothing_radius, 4.0f));
+}
+
+static inline func spiky_pow_3_scaling_factor(f32 smoothing_radius) -> f32 {
+	return 10.0f / (std::numbers::pi * pow(smoothing_radius, 5.0f));
+}
+
+static inline func spiky_pow_2_derivative_scaling_factor(f32 smoothing_radius) -> f32 {
+	return 12.0f / (std::numbers::pi * pow(smoothing_radius, 4.0f));
+}
+
+static inline func spiky_pow_3_derivative_scaling_factor(f32 smoothing_radius) -> f32 {
+	return 30.0f / (std::numbers::pi * pow(smoothing_radius, 5.0f));
+}
+
 static inline func smoothing_kernel(f32 dst, f32 radius) -> f32 {
+	if(dst < radius) {
+		f32 v = radius - dst;
+		return v * v * spiky_pow_2_scaling_factor(radius);
+	}
+	return 0;
+}
+
+static inline func smoothing_kernel_near(f32 dst, f32 radius) -> f32 {
+	if(dst >= radius) return 0;
+	f32 volume = (std::numbers::pi * pow(radius, 6.0f)) / 8.0f;
+	return(radius - dst) * (radius - dst) / volume;
+}
+
+static inline func viscosity_smoothing_kernel(f32 dst, f32 radius) -> f32 {
 	if(dst >= radius) return 0;
 	f32 volume = (std::numbers::pi * pow(radius, 4.0f)) / 6.0f;
 	return(radius - dst) * (radius - dst) / volume;
 }
 
 static inline func smoothing_kernel_derivative(f32 dst, f32 radius) -> f32 {
-	if(dst >= radius) return 0;
-	// f32 f = radius * radius - dst * dst;
-	float scale = 12 / (std::numbers::pi * pow(radius, 4.0f));
-	return (dst - radius) * scale;
+	if(dst <= radius) {
+		f32 v = radius - dst;
+		return -v * spiky_pow_2_derivative_scaling_factor(radius);
+	}
+	return 0;
+}
+
+static inline func smoothing_kernel_derivative_near(f32 dst, f32 radius) -> f32 {
+	if(dst <= radius) {
+		f32 v = radius - dst;
+		return -v * spiky_pow_3_derivative_scaling_factor(radius);
+	}
+	return 0;
 }
 
 static inline func get_random_dir() -> v2 {
@@ -138,7 +177,7 @@ inline func particle_simulation::foreach_point_within_radius(f32 dt, v2 sample_p
 inline func particle_simulation::update_spatial_lookup(f32 radius) -> void {
 	auto indices = arena.get_array(this->start_indices);
 	auto lookup = arena.get_array(this->spatial_lookup);
-	auto points	= arena.get_array(this->positions);
+	auto points	= arena.get_array(this->predicted_positions);
 
 	for(u32 i = 0 ; i < this->positions.count; ++i) {
 		v2i cell = position_to_cell_coord(points[i], radius);
@@ -162,14 +201,16 @@ inline func particle_simulation::update_spatial_lookup(f32 radius) -> void {
 	}
 }
 
-inline func calculate_shared_pressure(f32 density_a, f32 density_b, f32 target_density, f32 pressure_multiplier) -> f32 {
-	f32 pressure_A = convert_density_to_pressure(density_a, target_density, pressure_multiplier);
-	f32 pressure_B = convert_density_to_pressure(density_b, target_density, pressure_multiplier);
-	return (pressure_A + pressure_B) / 2;
+inline func particle_simulation::calculate_shared_pressure(f32 density_a, f32 density_b, f32 near_density_a, f32 near_density_b) -> v2 {
+	v2 pressure_A = convert_density_to_pressure(density_a, near_density_a);
+	v2 pressure_B = convert_density_to_pressure(density_b, near_density_b);
+	v2 result = V2((pressure_A.x + pressure_B.x) / 2, (pressure_A.y + pressure_B.y) / 2);
+	return result;
 }
 
 inline func particle_simulation::calculate_pressure_force(u32 particle_idx, f32 smoothing_radius) -> v2 {
 	auto densities = arena.get_array(this->densities);
+	auto near_dnsties = arena.get_array(this->near_densities);
 
 	v2 pressure_force = {};
 
@@ -190,21 +231,23 @@ inline func particle_simulation::calculate_pressure_force(u32 particle_idx, f32 
 			if(spatial_lookup[j].cell_key != key) break;
 
 			u32 particle_index  = spatial_lookup[j].particle_index;
+
+			if(particle_idx == particle_index) continue;
+
 			v2 offset_to_neighbour = points[particle_index] - points[particle_idx];
 			f32 sqr_dst = Inner(offset_to_neighbour, offset_to_neighbour);
 
 			// NOTE(DH): Test if the point is inside the radius
-			if(sqr_dst <= sqr_radius) {
-				if(particle_idx == particle_index) continue;
+			if(sqr_dst > sqr_radius) continue;
 
-				f32 dst = sqrt(sqr_dst);
-				v2 dir = (dst < FLT_EPSILON && dst > 0.0f) ?  get_random_dir() : offset_to_neighbour / dst;
+			f32 dst = sqrt(sqr_dst);
+			v2 dir = (dst > 0.0f) ?  offset_to_neighbour / dst : get_random_dir();
 
-				f32 slope = smoothing_kernel_derivative(dst, smoothing_radius);
-				f32 density = densities[particle_index];
-				f32 shared_pressure = calculate_shared_pressure(density, densities[particle_idx], this->target_density, this->pressure_multiplier);
-				pressure_force += shared_pressure * dir * slope / density;
-			}
+			f32 density = densities[particle_idx];
+			f32 near_density = near_dnsties[particle_idx];
+			v2 shared_pressure = calculate_shared_pressure(density, densities[particle_idx], near_density, near_dnsties[particle_idx]);
+			pressure_force += shared_pressure.x * dir * smoothing_kernel_derivative(dst, smoothing_radius) / density;
+			pressure_force += shared_pressure.y * dir * smoothing_kernel_derivative_near(dst, smoothing_radius) / near_density;
 		}
 	}
 
@@ -212,7 +255,42 @@ inline func particle_simulation::calculate_pressure_force(u32 particle_idx, f32 
 }
 
 inline func particle_simulation::calculate_density(v2 sample_point, f32 smoothing_radius) -> f32 {
-	auto positions = arena.get_array(this->positions);
+	auto positions 		= arena.get_array(this->predicted_positions);
+	auto indices 		= arena.get_array(this->start_indices);
+	auto spatial_lookup = arena.get_array(this->spatial_lookup);
+
+	f32 density = 0;
+
+	auto cell_offsets = arena.get_array(this->cell_offsets);
+	v2i centre = position_to_cell_coord(sample_point, smoothing_radius);
+	f32 sqr_radius = Square(smoothing_radius);
+
+	for(u32 i = 0; i < this->cell_offsets.count; ++i) {
+		u32 key = get_key_from_hash(hash_cell(centre.x + cell_offsets[i].x, centre.y + cell_offsets[i].y), this->spatial_lookup.count);
+		i32 cell_start_index = indices[key];
+
+		for(i32 j = cell_start_index; j < this->spatial_lookup.count; ++j) {
+			if(spatial_lookup[j].cell_key != key) break;
+
+			u32 particle_index  = spatial_lookup[j].particle_index;
+
+			v2 offset_to_neighbour = positions[particle_index] - sample_point;
+			f32 sqr_dst = Inner(offset_to_neighbour, offset_to_neighbour);
+
+			// NOTE(DH): Test if the point is inside the radius
+			if(sqr_dst <= sqr_radius) {
+				f32 dst = sqrt(sqr_dst);
+				f32 influence = smoothing_kernel(dst, smoothing_radius);
+				density += influence;
+			}
+		}
+	}
+
+	return density;
+}
+
+inline func particle_simulation::calculate_near_density(v2 sample_point, f32 smoothing_radius) -> f32 {
+	auto positions 		= arena.get_array(this->predicted_positions);
 	auto indices 		= arena.get_array(this->start_indices);
 	auto spatial_lookup = arena.get_array(this->spatial_lookup);
 
@@ -236,13 +314,51 @@ inline func particle_simulation::calculate_density(v2 sample_point, f32 smoothin
 			// NOTE(DH): Test if the point is inside the radius
 			if(sqr_dst <= sqr_radius) {
 				f32 dst = sqrt(sqr_dst);
-				f32 influence = smoothing_kernel(dst, smoothing_radius);
+				f32 influence = smoothing_kernel_near(dst, smoothing_radius);
 				density += influence;
 			}
 		}
 	}
 
 	return density;
+}
+
+inline func particle_simulation::calculate_viscosity(u32 particle_index) -> v2 {
+	auto positions 		= arena.get_array(this->positions);
+	auto indices 		= arena.get_array(this->start_indices);
+	auto spatial_lookup = arena.get_array(this->spatial_lookup);
+	auto velocities 	= arena.get_array(this->velocities);
+
+	v2 viscosity_force = {};
+	v2 position = positions[particle_index];
+
+	f32 density = 0;
+
+	auto cell_offsets = arena.get_array(this->cell_offsets);
+	v2i centre = position_to_cell_coord(position, this->info_for_cshader.smoothing_radius);
+	f32 sqr_radius = Square(this->info_for_cshader.smoothing_radius);
+
+	for(u32 i = 0; i < this->cell_offsets.count; ++i) {
+		u32 key = get_key_from_hash(hash_cell(centre.x + cell_offsets[i].x, centre.y + cell_offsets[i].y), this->spatial_lookup.count);
+		i32 cell_start_index = indices[key];
+
+		for(i32 j = cell_start_index; j < this->spatial_lookup.count; ++j) {
+			if(spatial_lookup[j].cell_key != key) break;
+
+			u32 other_index  = spatial_lookup[j].particle_index;
+			v2 offset_to_neighbour = positions[other_index] - position;
+			f32 sqr_dst = Inner(offset_to_neighbour, offset_to_neighbour);
+
+			// NOTE(DH): Test if the point is inside the radius
+			if(sqr_dst <= sqr_radius) {
+				f32 dst = sqrt(sqr_dst);
+				f32 influence = viscosity_smoothing_kernel(dst, this->info_for_cshader.smoothing_radius);
+				viscosity_force += (velocities[other_index] - velocities[particle_index]) * influence;
+			}
+		}
+	}
+
+	return viscosity_force * this->info_for_cshader.viscosity_strength;
 }
 
 inline func particle_simulation::calculate_property(v2 sample_point, f32 smoothing_radius) -> f32 {
@@ -264,36 +380,20 @@ inline func particle_simulation::calculate_property(v2 sample_point, f32 smoothi
 	return property;
 }
 
-inline func convert_density_to_pressure(f32 density, f32 target_density, f32 pressure_multiplier) -> f32 {
+inline func particle_simulation::convert_density_to_pressure(f32 density, f32 near_density) -> v2 {
 	f32 density_error = density - target_density;
-	f32 pressure = density_error * pressure_multiplier;
-	return pressure;
+	f32 pressure = density_error * info_for_cshader.pressure_multiplier;
+	f32 near_pressure = near_density * this->info_for_cshader.near_pressure_multiplier;
+	return V2(pressure, near_pressure);
 }
 
 func sign(f32 val) -> f32 {
-	
 	if(val > 0) return 1;
 	else if(val < 0) return -1.0f;
 	return 0;
 }
 
-// func particle_simulation::update_particles(f32 dt) -> void {
-// 	auto particles = arena.get_array(this->particles);
-// 	auto positions = arena.get_array(this->positions);
-// 	auto velocities = arena.get_array(this->velocities);
-
-// 	for(u32 i = 0 ; i < this->particles.count; ++i) {
-// 		velocities[i] 	+= V2(0.0, -1.0) * gravity * dt;
-// 		positions[i] 	+= velocities[i] * dt;
-// 		resolve_collisions(&positions[i], &velocities[i], particles[i].particle_size);
-// 		// positions[i] 	= p_n_v.position;
-// 		// velocities[i] 	= p_n_v.velocity;
-
-// 		arena.get_array(matrices)[i] = translation_matrix(V3(positions[i], 0.0f));
-// 	}
-// }
-
-func particle_simulation::resolve_collisions(v2* position, v2* velocity,f32 particle_size) -> void {
+func particle_simulation::resolve_collisions(v2* position, v2* velocity, f32 particle_size) -> void {
 	v2 half_bound_size = this->bounds_size * 0.5f - V2(particle_size, particle_size);
 
 	if(abs(position->x) > half_bound_size.x) {
@@ -447,14 +547,15 @@ float example_function(v2 pos) {
 inline func particle_simulation::simulation_step(f32 delta_time, u32 width, u32 height, v2 mouse_pos, bool is_left_mouse, bool is_right_mouse) -> void {
 	this->sim_data_counter++;
 	this->delta_time = delta_time;
-	this->info_for_cshader.max_velocity = max_velocity;
 
 	auto dnsties	= arena.get_array(this->densities);
+	auto near_dnsties	= arena.get_array(this->near_densities);
 	auto particles = arena.get_array(this->particles);
 	auto positions = arena.get_array(this->positions);
 	auto velocities = arena.get_array(this->velocities);
 	auto predicted_positions = arena.get_array(this->predicted_positions);
 
+	f32 prediction_factor = 1.0f / 120.0f;
 	f32 aspect = (f32)width / (f32)height;
 	f32 scale = 5.0f;
 	v2 mouse_centered = V2((-mouse_pos.x + (width / 2)), mouse_pos.y - (height / 2));
@@ -465,12 +566,13 @@ inline func particle_simulation::simulation_step(f32 delta_time, u32 width, u32 
 
 	for(u32 i = 0 ; i < this->particles.count; ++i) {
 		velocities[i] += V2(0.0, 1.0f) * gravity * delta_time;
-		predicted_positions[i] = positions[i] + velocities[i] * (1.0f / 120.0f);
 
 		if(is_left_mouse)
 			velocities[i] += interaction_force(ndc_mouse_pos.xy, this->info_for_cshader.pull_push_radius, this->info_for_cshader.pull_push_strength, i);
 		else if (is_right_mouse)
 			velocities[i] += interaction_force(ndc_mouse_pos.xy, this->info_for_cshader.pull_push_radius, -this->info_for_cshader.pull_push_strength, i);
+
+		predicted_positions[i] = positions[i] + velocities[i] * prediction_factor;
 	}
 
 	update_spatial_lookup(this->info_for_cshader.smoothing_radius);
@@ -500,14 +602,18 @@ inline func particle_simulation::simulation_step(f32 delta_time, u32 width, u32 
 		dnsties[i] = calculate_density(predicted_positions[i], this->info_for_cshader.smoothing_radius);
 	}
 
+	for(u32 i = 0 ; i < this->positions.count; ++i) {
+		near_dnsties[i] = calculate_near_density(predicted_positions[i], this->info_for_cshader.smoothing_radius);
+	}
+
 	for(u32 i = 0 ; i < this->particles.count; ++i) {
 		v2 pressure_force = calculate_pressure_force(i, this->info_for_cshader.smoothing_radius);
 		v2 pressure_acceleration = pressure_force /  dnsties[i];
 		velocities[i] += pressure_acceleration * delta_time;
+	}
 
-		// if(Length(velocities[i]) > this->max_velocity) {
-		// 	velocities[i] = normalize(velocities[i]) * this->max_velocity;
-		// }
+	for(u32 i = 0 ; i < this->particles.count; ++i) {
+		velocities[i] += calculate_viscosity(i) * delta_time;
 	}
 
 	// start = std::chrono::high_resolution_clock::now();
@@ -534,17 +640,17 @@ inline func particle_simulation::simulation_step(f32 delta_time, u32 width, u32 
 }
 
 inline func particle_simulation::interaction_force(v2 input_pos, f32 radius, f32 strength, u32 particle_idx) -> v2 {
-	auto pos_array = arena.get_array(positions);
+	auto pos_array = arena.get_array(predicted_positions);
 	auto vel_array = arena.get_array(velocities);
 	v2 interaction_force = {};
 	v2 offset = input_pos - pos_array[particle_idx];
 	f32 sqr_dst = Inner(offset, offset);
 
-	if(sqr_dst < radius * radius) {
+	if(sqr_dst < (radius * radius)) {
 		f32 dst = sqrt(sqr_dst);
-		v2 dir_to_input_point = (dst <= FLT_EPSILON) ? V2(0.0f) : offset * (1.0f / dst);
-		f32 centre_t = 1.0f - (dst / radius);
-		interaction_force += (dir_to_input_point * strength - vel_array[particle_idx]) * centre_t;
+		v2 dir_to_input_point = (dst <= FLT_EPSILON) ? V2(0.0f) : offset / dst;
+		f32 centre_t = 1.0f - dst / radius;
+		interaction_force = (dir_to_input_point * strength - vel_array[particle_idx]) * centre_t;
 	}
 
 	return interaction_force;
@@ -571,6 +677,9 @@ inline func initialize_simulation(dx_context *ctx, u32 particle_count, f32 gravi
 	
 	result.densities 			= result.arena.alloc_array<f32>(particle_count);
 	result.densities.count 		= particle_count;
+
+	result.near_densities 		= result.arena.alloc_array<f32>(particle_count);
+	result.near_densities.count = particle_count;
 	
 	result.final_gradient 		= result.arena.alloc_array<f32>(2560 * 1440);
 	result.final_gradient.count = 2560 * 1440;
@@ -593,7 +702,7 @@ inline func initialize_simulation(dx_context *ctx, u32 particle_count, f32 gravi
 	result.info_for_cshader.smoothing_radius = 0.3;
 	result.info_for_cshader.max_velocity = 1.0f;
 	result.target_density = 1.5f;
-	result.pressure_multiplier = 0.0f;
+	result.info_for_cshader.pressure_multiplier = 0.0f;
 
 	result.cmd_list 			= create_command_list<ID3D12GraphicsCommandList>(ctx, D3D12_COMMAND_LIST_TYPE_DIRECT, nullptr, true);
 	result.simulation_desc_heap = allocate_descriptor_heap(ctx->g_device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, 32);
@@ -602,7 +711,7 @@ inline func initialize_simulation(dx_context *ctx, u32 particle_count, f32 gravi
 		result.command_allocators[i] = create_command_allocator(ctx->g_device, D3D12_COMMAND_LIST_TYPE_DIRECT);
 	}
 
-	float particle_size = 0.05f;
+	float particle_size = 0.04f;
 
 	u32 particles_row = (i32)sqrt(particle_count);
 	u32 particle_per_col  = (particle_count - 1) / particles_row + 1;
@@ -738,6 +847,58 @@ inline func initialize_simulation(dx_context *ctx, u32 particle_count, f32 gravi
 			.bind_buffer<false, true, false>(result.arena.push_data(dnsts))
 			.bind_buffer<false, true, false>(result.arena.push_data(prprts))
 			.bind_buffer<false, true, false>(result.arena.push_data(cbuff2))
+			.bind_buffer<false,true, false>(result.arena.push_data(cbuff));
+
+		auto binds_ar_ptr = result.arena.push_data(binds);
+		auto binds_ptr = *(arena_ptr<void>*)(&binds_ar_ptr);
+
+		auto resize = [](dx_context *ctx, descriptor_heap* heap, memory_arena *arena, arena_array<resource_and_view> resources_and_views, u32 width, u32 height, arena_ptr<void> bindings) {
+			arena_ptr<decltype(binds)> bnds_ptr = *(arena_ptr<decltype(binds)>*)&bindings;
+			auto bnds = arena->get_ptr(bnds_ptr);
+			Resize<decltype(binds)::BUF_TS_U>::resize(bnds->data, ctx->g_device, *arena, heap, &resources_and_views, width, height); 
+		};
+
+		auto generate_binding_table = [](dx_context *ctx, descriptor_heap* heap, memory_arena *arena, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings) {
+			arena_ptr<decltype(binds)> bnds_ptr = *(arena_ptr<decltype(binds)>*)&bindings;
+			auto bnds = arena->get_ptr(bnds_ptr);
+			GCBC<decltype(binds)::BUF_TS_U>::bind_root_sig_table(bnds->data, 0, cmd_list, ctx->g_device, heap->addr, arena);
+		};
+
+		auto update = [](dx_context *ctx, descriptor_heap* heap, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings) {
+			arena_ptr<decltype(binds)> bnds_ptr = *(arena_ptr<decltype(binds)>*)&bindings;
+			auto bnds = arena->get_ptr(bnds_ptr);
+			Update<decltype(binds)::BUF_TS_U>::update(bnds->data, ctx, arena, resources_and_views, cmd_list);
+		};
+
+		auto copy_to_render_target = [](dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings) {
+			arena_ptr<decltype(binds)> bnds_ptr = *(arena_ptr<decltype(binds)>*)&bindings;
+			auto bnds = arena->get_ptr(bnds_ptr);
+			CTRT<decltype(binds)::BUF_TS_U>::copy_to_render_target(bnds->data, ctx, arena, resources_and_views, cmd_list);
+		};
+
+		auto copy_screen_to_render_target = [](dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings) {
+			return;
+		};
+
+		compute_pipeline compute_pipeline = 
+		compute_pipeline::init__(binds_ptr, resize, generate_binding_table, update, copy_to_render_target, copy_screen_to_render_target)
+			.bind_shader		(compute_shader)
+			.create_root_sig	(binds, ctx->g_device, &result.arena)
+			.finalize			(binds, ctx, &result.arena, ctx->resources_and_views, ctx->g_device, &result.simulation_desc_heap);
+
+		result.rndr_stage
+			.bind_compute_pass(compute_pipeline, &result.arena);
+	}
+
+	// NOTE(DH): Compute shader for sorting
+	{
+		WCHAR filename[] = L"bitonic_merge_sort.hlsl";
+		ID3DBlob* compute_shader = compile_shader(ctx->g_device, filename, "CSMain", "cs_5_0");
+
+		buffer_1d 		prprts 			= buffer_1d			::create (ctx->g_device, result.arena, &result.simulation_desc_heap, &result.resources_and_views, particle_count, sizeof(f32), (u8*)prprtes, 3);
+		buffer_cbuf		cbuff 			= buffer_cbuf		::create (ctx->g_device, result.arena, &result.simulation_desc_heap, &result.resources_and_views, (u8*)&result.info_for_cshader, 1);
+
+		auto binds = mk_bindings()
 			.bind_buffer<false,true, false>(result.arena.push_data(cbuff));
 
 		auto binds_ar_ptr = result.arena.push_data(binds);
