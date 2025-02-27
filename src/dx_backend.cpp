@@ -380,7 +380,7 @@ void resize(dx_context *context, u32 width, u32 height)
 
 	// Resize compute shader buffer
 	auto render_pass_01 = context->mem_arena.load_by_idx<render_pass>				(context->compute_stage.render_passes.ptr, 0);
-	auto pipeline 		= context->mem_arena.get_ptr								(render_pass_01.curr_pipeline_c);
+	auto pipeline 		= context->mem_arena.get_ptr								(render_pass_01.compute.curr);
 
 	pipeline->resize(context, &context->compute_stage_heap, &context->mem_arena, context->resources_and_views, width, height, pipeline->bindings);
 
@@ -710,9 +710,9 @@ dx_context init_dx(HWND hwnd)
 		buffer_cbuf	cbuff = buffer_cbuf::create (result.g_device, result.mem_arena, &result.compute_stage_heap, &result.resources_and_views, (u8*)&result.common_cbuff_data, 0);
 
 		auto binds = mk_bindings()
-			.bind_buffer<true, false, true>(result.mem_arena.push_data(render_target))
-			.bind_buffer<true, false, false>(result.mem_arena.push_data(hist_buffer))
-			.bind_buffer<false,true, false>(result.mem_arena.push_data(cbuff));
+			.bind_buffer<true, false, true, false>(result.mem_arena.push_data(render_target))
+			.bind_buffer<true, false, false, false>(result.mem_arena.push_data(hist_buffer))
+			.bind_buffer<false,true, false, false>(result.mem_arena.push_data(cbuff));
 
 		auto binds_ar_ptr = result.mem_arena.push_data(binds);
 		auto binds_ptr = *(arena_ptr<void>*)(&binds_ar_ptr);
@@ -788,7 +788,7 @@ void update(dx_context *ctx)
 	//ctx->common_cbuff_data.mouse_pos = V4(ImGui::GetMousePos().x, ImGui::GetMousePos().y, 1.0, 1.0);
 
 	render_pass			pass 		= ctx->mem_arena.load_by_idx<render_pass>(ctx->compute_stage.render_passes.ptr, 0);
-	compute_pipeline 	pipeline 	= ctx->mem_arena.load(pass.curr_pipeline_c);
+	compute_pipeline 	pipeline 	= ctx->mem_arena.load(pass.compute.curr);
 
 	pipeline.update(ctx, &ctx->compute_stage_heap, &ctx->mem_arena, ctx->resources_and_views, ctx->g_compute_command_list, pipeline.bindings);
 }
@@ -1196,8 +1196,8 @@ ID3D12GraphicsCommandList* generate_compute_command_buffer(dx_context *ctx, u32 
 	rendering_stage 	stage 		= ctx->compute_stage;
 	render_pass 		rndr_pass_1	= ctx->mem_arena.load_by_idx(stage.render_passes.ptr, 0);
 	render_pass 		rndr_pass_2	= ctx->mem_arena.load_by_idx(stage.render_passes.ptr, 1);
-	compute_pipeline	c_p_1 		= ctx->mem_arena.load(rndr_pass_1.curr_pipeline_c);
-	compute_pipeline	c_p_2 		= ctx->mem_arena.load(rndr_pass_2.curr_pipeline_c);
+	compute_pipeline	c_p_1 		= ctx->mem_arena.load(rndr_pass_1.compute.curr);
+	compute_pipeline	c_p_2 		= ctx->mem_arena.load(rndr_pass_2.compute.curr);
 
 	//NOTE(DH): Reset command allocators for the next frame
 	record_reset_cmd_allocator(cmd_allocator);

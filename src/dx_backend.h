@@ -95,6 +95,7 @@ struct buffer_2d {
 	u32 register_index;	
 	u32 heap_idx;
 	buf_format fmt;
+	bool need_to_copy_from_gpu;
 
 	static inline func create (ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u32 count_x, u32 count_y, u32 size_of_one_elem, u8* data, u32 register_index) -> buffer_2d;
 	inline func recreate (ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, 	u32 count_x, u32 count_y, u32 size_of_one_elem, u8* data) -> buffer_2d;
@@ -124,7 +125,6 @@ struct buffer_vtex {
 	u32 size_of_one_elem;
 	u32 register_index;
 	u32 heap_idx;
-	bool need_to_upload;
 	buf_format fmt;
 
 	static inline func create (ID3D12Device2* device, memory_arena arena, descriptor_heap* heap, arena_array<resource_and_view> *r_n_v, u8* data, u32 size_of_data, u32 register_index) -> buffer_vtex;
@@ -226,8 +226,8 @@ struct render_target1d {
 	inline func recreate (ID3D12Device2* device, memory_arena arena, descriptor_heap *heap, arena_array<resource_and_view> *r_n_v, u32 width) -> render_target1d;
 };
 
-// NOTE(DH): RESIZE - UPDATE - COPY TO RTV
-template<bool, bool, bool, typename T, typename TS>
+// NOTE(DH): RESIZE - UPDATE - COPY TO RTV - NEED_COPY_FROM_GPU_TO_CPU
+template<bool, bool, bool, bool, typename T, typename TS>
 struct t_list_cons {
 	arena_ptr<T> el;
 	TS tail;
@@ -244,9 +244,9 @@ struct binding {
 	BUF_TS data;
 	using BUF_TS_U = BUF_TS;
 
-	template<bool B, bool U, bool CP, typename BUF_TNEW>
-	func bind_buffer(arena_ptr<BUF_TNEW> buffer) -> binding<t_list_cons<B, U, CP, BUF_TNEW, BUF_TS>> {
-		return binding<t_list_cons<B, U, CP, BUF_TNEW, BUF_TS>> { .data = { .el = buffer, .tail = data} };
+	template<bool B, bool U, bool CP, bool CFGC, typename BUF_TNEW>
+	func bind_buffer(arena_ptr<BUF_TNEW> buffer) -> binding<t_list_cons<B, U, CP, CFGC, BUF_TNEW, BUF_TS>> {
+		return binding<t_list_cons<B, U, CP, CFGC, BUF_TNEW, BUF_TS>> { .data = { .el = buffer, .tail = data} };
 	}
 };
 
@@ -357,15 +357,24 @@ public:
 
 struct render_pass {
 	enum pipeline_type {
-		compute = 0,
-		graphics
+		compute_type = 0,
+		graphics_type
 	} type;
 
-	arena_ptr<graphic_pipeline> curr_pipeline_g;
-	arena_ptr<graphic_pipeline> prev_pipeline_g; // NOTE(DH): We need this for runtime shader compilation!
+	template<typename T>
+	struct uni {
+		arena_ptr<T> curr;
+		arena_ptr<T> prev;
+	};
 
-	arena_ptr<compute_pipeline> curr_pipeline_c;
-	arena_ptr<compute_pipeline> prev_pipeline_c; // NOTE(DH): We need this for runtime shader compilation!
+	uni<graphic_pipeline> graph;
+	uni<compute_pipeline> compute;
+
+	// arena_ptr<graphic_pipeline> curr_pipeline_g;
+	// arena_ptr<graphic_pipeline> prev_pipeline_g; // NOTE(DH): We need this for runtime shader compilation!
+
+	// arena_ptr<compute_pipeline> curr_pipeline_c;
+	// arena_ptr<compute_pipeline> prev_pipeline_c; // NOTE(DH): We need this for runtime shader compilation!
 };
 
 struct rendering_stage {
@@ -380,13 +389,15 @@ public:
 
 	inline func bind_compute_pass(compute_pipeline pipeline, memory_arena *arena) -> rendering_stage {
 		auto passes = arena->get_array(this->render_passes);
-		passes[this->render_passes.count++].curr_pipeline_c = arena->write(pipeline);
+		passes[this->render_passes.count].type = render_pass::compute_type;
+		passes[this->render_passes.count++].compute.curr = arena->write(pipeline);
 		return *this;
 	};
 
 	inline func bind_graphic_pass(graphic_pipeline pipeline, memory_arena *arena) -> rendering_stage {
 		auto passes = arena->get_array(this->render_passes);
-		passes[this->render_passes.count++].curr_pipeline_g = arena->write(pipeline);
+		passes[this->render_passes.count].type = render_pass::graphics_type;
+		passes[this->render_passes.count++].graph.curr = arena->write(pipeline);
 		return *this;
 	};
 };
@@ -583,81 +594,81 @@ struct CRS {
 	static func create_root_sig(T list, u32 current_resource, bool *is_texture_arr, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void { static_assert(!1, "");};
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct CRS<t_list_cons<B, U, CP, buffer_cbuf, TS>> {
-	static func create_root_sig(t_list_cons<B, U, CP, buffer_cbuf, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct CRS<t_list_cons<B, U, CP, CFGC, buffer_cbuf, TS>> {
+	static func create_root_sig(t_list_cons<B, U, CP, CFGC, buffer_cbuf, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
 		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, arena->get_ptr(list.el)->register_index, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
 		is_texture[current_resource] = false;
 		CRS<TS>::create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct CRS<t_list_cons<B, U, CP, buffer_2d, TS>> {
-	static func create_root_sig(t_list_cons<B, U, CP, buffer_2d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct CRS<t_list_cons<B, U, CP, CFGC, buffer_2d, TS>> {
+	static func create_root_sig(t_list_cons<B, U, CP, CFGC, buffer_2d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
 		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, arena->get_ptr(list.el)->register_index, 0 ,D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
 		is_texture[current_resource] = false;
 		CRS<TS>::create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct CRS<t_list_cons<B, U, CP, buffer_1d, TS>> {
-	static func create_root_sig(t_list_cons<B, U, CP, buffer_1d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct CRS<t_list_cons<B, U, CP, CFGC, buffer_1d, TS>> {
+	static func create_root_sig(t_list_cons<B, U, CP, CFGC, buffer_1d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
 		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, arena->get_ptr(list.el)->register_index, 0 ,D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
 		is_texture[current_resource] = false;
 		CRS<TS>::create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct CRS<t_list_cons<B, U, CP, buffer_vtex, TS>> {
-	static func create_root_sig(t_list_cons<B, U, CP, buffer_vtex, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct CRS<t_list_cons<B, U, CP, CFGC, buffer_vtex, TS>> {
+	static func create_root_sig(t_list_cons<B, U, CP, CFGC, buffer_vtex, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
 		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, arena->get_ptr(list.el)->register_index, 0 ,D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
 		is_texture[current_resource] = false;
 		CRS<TS>::create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct CRS<t_list_cons<B, U, CP, buffer_idex, TS>> {
-	static func create_root_sig(t_list_cons<B, U, CP, buffer_idex, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct CRS<t_list_cons<B, U, CP, CFGC, buffer_idex, TS>> {
+	static func create_root_sig(t_list_cons<B, U, CP, CFGC, buffer_idex, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
 		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, arena->get_ptr(list.el)->register_index, 0 ,D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
 		is_texture[current_resource] = false;
 		CRS<TS>::create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct CRS<t_list_cons<B, U, CP, texture_2d, TS>> {
-	static func create_root_sig(t_list_cons<B, U, CP, texture_2d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct CRS<t_list_cons<B, U, CP, CFGC, texture_2d, TS>> {
+	static func create_root_sig(t_list_cons<B, U, CP, CFGC, texture_2d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
 		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, arena->get_ptr(list.el)->register_index, 0 ,D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
 		is_texture[current_resource] = true;
 		CRS<TS>::create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct CRS<t_list_cons<B, U, CP, texture_1d, TS>> {
-	static func create_root_sig(t_list_cons<B, U, CP, texture_1d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct CRS<t_list_cons<B, U, CP, CFGC, texture_1d, TS>> {
+	static func create_root_sig(t_list_cons<B, U, CP, CFGC, texture_1d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
 		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, arena->get_ptr(list.el)->register_index, 0, D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
 		is_texture[current_resource] = true;
 		CRS<TS>::create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct CRS<t_list_cons<B, U, CP, render_target2d, TS>> {
-	static func create_root_sig(t_list_cons<B, U, CP, render_target2d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct CRS<t_list_cons<B, U, CP, CFGC, render_target2d, TS>> {
+	static func create_root_sig(t_list_cons<B, U, CP, CFGC, render_target2d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
 		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, arena->get_ptr(list.el)->register_index, 0, D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
 		is_texture[current_resource] = false;
 		CRS<TS>::create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct CRS<t_list_cons<B, U, CP, render_target1d, TS>> {
-	static func create_root_sig(t_list_cons<B, U, CP, render_target1d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct CRS<t_list_cons<B, U, CP, CFGC, render_target1d, TS>> {
+	static func create_root_sig(t_list_cons<B, U, CP, CFGC, render_target1d, TS> list, u32 current_resource, bool *is_texture, CD3DX12_DESCRIPTOR_RANGE1 *ranges, memory_arena *arena) -> void {
 		ranges[current_resource].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, arena->get_ptr(list.el)->register_index, 0, D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
 		is_texture[current_resource] = false;
 		CRS<TS>::create_root_sig(list.tail, current_resource + 1, is_texture, ranges, arena);
@@ -676,74 +687,74 @@ struct GCB {
 	static func bind_root_sig_table(T list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void { static_assert(!1, "");};
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct GCB<t_list_cons<B, U, CP, buffer_cbuf, TS>> {
-	static func bind_root_sig_table(t_list_cons<B, U, CP, buffer_cbuf, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct GCB<t_list_cons<B, U, CP, CFGC, buffer_cbuf, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, U, CP, CFGC, buffer_cbuf, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
 		cmd_list->SetGraphicsRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(arena->get_ptr(list.el)->heap_idx, 1, device, heap));
 		GCB<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct GCB<t_list_cons<B, U, CP, buffer_2d, TS>> {
-	static func bind_root_sig_table(t_list_cons<B, U, CP, buffer_2d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct GCB<t_list_cons<B, U, CP, CFGC, buffer_2d, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, U, CP, CFGC, buffer_2d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
 		cmd_list->SetGraphicsRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(arena->get_ptr(list.el)->heap_idx, 1, device, heap));
 		GCB<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct GCB<t_list_cons<B, U, CP, buffer_1d, TS>> {
-	static func bind_root_sig_table(t_list_cons<B, U, CP, buffer_1d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct GCB<t_list_cons<B, U, CP, CFGC, buffer_1d, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, U, CP, CFGC, buffer_1d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
 		cmd_list->SetGraphicsRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(arena->get_ptr(list.el)->heap_idx, 1, device, heap));
 		GCB<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct GCB<t_list_cons<B, U, CP, buffer_vtex, TS>> {
-	static func bind_root_sig_table(t_list_cons<B, U, CP, buffer_vtex, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct GCB<t_list_cons<B, U, CP, CFGC, buffer_vtex, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, U, CP, CFGC, buffer_vtex, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
 		cmd_list->IASetVertexBuffers(0, 1, &arena->get_ptr(list.el)->view);
 		GCB<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct GCB<t_list_cons<B, U, CP, buffer_idex, TS>> {
-	static func bind_root_sig_table(t_list_cons<B, U, CP, buffer_idex, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct GCB<t_list_cons<B, U, CP, CFGC, buffer_idex, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, U, CP, CFGC, buffer_idex, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
 		cmd_list->IASetIndexBuffer(&arena->get_ptr(list.el)->view);
 		cmd_list->DrawIndexedInstanced(arena->get_ptr(list.el)->size_of_data / sizeof(u32), arena->get_ptr(list.el)->instance_count, 0, 0, 0);
 		GCB<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct GCB<t_list_cons<B, U, CP, texture_2d, TS>> {
-	static func bind_root_sig_table(t_list_cons<B, U, CP, texture_2d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct GCB<t_list_cons<B, U, CP, CFGC, texture_2d, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, U, CP, CFGC, texture_2d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
 		cmd_list->SetGraphicsRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(arena->get_ptr(list.el)->heap_idx, 1, device, heap));
 		GCB<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct GCB<t_list_cons<B, U, CP, texture_1d, TS>> {
-	static func bind_root_sig_table(t_list_cons<B, U, CP, texture_1d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct GCB<t_list_cons<B, U, CP, CFGC, texture_1d, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, U, CP, CFGC, texture_1d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
 		cmd_list->SetGraphicsRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(arena->get_ptr(list.el)->heap_idx, 1, device, heap));
 		GCB<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct GCB<t_list_cons<B, U, CP, render_target2d, TS>> {
-	static func bind_root_sig_table(t_list_cons<B, U, CP, render_target2d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct GCB<t_list_cons<B, U, CP, CFGC, render_target2d, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, U, CP, CFGC, render_target2d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
 		cmd_list->SetGraphicsRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(arena->get_ptr(list.el)->heap_idx, 1, device, heap));
 		GCB<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct GCB<t_list_cons<B, U, CP, render_target1d, TS>> {
-	static func bind_root_sig_table(t_list_cons<B, U, CP, render_target1d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct GCB<t_list_cons<B, U, CP, CFGC, render_target1d, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, U, CP, CFGC, render_target1d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
 		cmd_list->SetGraphicsRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(arena->get_ptr(list.el)->heap_idx, 1, device, heap));
 		GCB<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
 	}
@@ -761,57 +772,57 @@ struct GCBC {
 	static func bind_root_sig_table(T list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void { static_assert(!1, "");};
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct GCBC<t_list_cons<B, U, CP, buffer_cbuf, TS>> {
-	static func bind_root_sig_table(t_list_cons<B, U, CP, buffer_cbuf, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct GCBC<t_list_cons<B, U, CP, CFGC, buffer_cbuf, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, U, CP, CFGC, buffer_cbuf, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
 		cmd_list->SetComputeRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(arena->get_ptr(list.el)->heap_idx, 1, device, heap));
 		GCBC<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct GCBC<t_list_cons<B, U, CP, buffer_2d, TS>> {
-	static func bind_root_sig_table(t_list_cons<B, U, CP, buffer_2d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct GCBC<t_list_cons<B, U, CP, CFGC, buffer_2d, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, U, CP, CFGC, buffer_2d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
 		cmd_list->SetComputeRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(arena->get_ptr(list.el)->heap_idx, 1, device, heap));
 		GCBC<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct GCBC<t_list_cons<B, U, CP, buffer_1d, TS>> {
-	static func bind_root_sig_table(t_list_cons<B, U, CP, buffer_1d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct GCBC<t_list_cons<B, U, CP, CFGC, buffer_1d, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, U, CP, CFGC, buffer_1d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
 		cmd_list->SetComputeRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(arena->get_ptr(list.el)->heap_idx, 1, device, heap));
 		GCBC<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct GCBC<t_list_cons<B, U, CP, texture_2d, TS>> {
-	static func bind_root_sig_table(t_list_cons<B, U, CP, texture_2d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct GCBC<t_list_cons<B, U, CP, CFGC, texture_2d, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, U, CP, CFGC, texture_2d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
 		cmd_list->SetComputeRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(arena->get_ptr(list.el)->heap_idx, 1, device, heap));
 		GCBC<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct GCBC<t_list_cons<B, U, CP, texture_1d, TS>> {
-	static func bind_root_sig_table(t_list_cons<B, U, CP, texture_1d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct GCBC<t_list_cons<B, U, CP, CFGC, texture_1d, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, U, CP, CFGC, texture_1d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
 		cmd_list->SetComputeRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(arena->get_ptr(list.el)->heap_idx, 1, device, heap));
 		GCBC<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct GCBC<t_list_cons<B, U, CP, render_target2d, TS>> {
-	static func bind_root_sig_table(t_list_cons<B, U, CP, render_target2d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct GCBC<t_list_cons<B, U, CP, CFGC, render_target2d, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, U, CP, CFGC, render_target2d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
 		cmd_list->SetComputeRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(arena->get_ptr(list.el)->heap_idx, 1, device, heap));
 		GCB<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct GCBC<t_list_cons<B, U, CP, render_target1d, TS>> {
-	static func bind_root_sig_table(t_list_cons<B, U, CP, render_target1d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct GCBC<t_list_cons<B, U, CP, CFGC, render_target1d, TS>> {
+	static func bind_root_sig_table(t_list_cons<B, U, CP, CFGC, render_target1d, TS> list, u32 current_resource, ID3D12GraphicsCommandList *cmd_list, ID3D12Device2* device, ID3D12DescriptorHeap *heap, memory_arena *arena) -> void {
 		cmd_list->SetComputeRootDescriptorTable(current_resource, get_uav_cbv_srv_gpu_handle(arena->get_ptr(list.el)->heap_idx, 1, device, heap));
 		GCBC<TS>::bind_root_sig_table(list.tail, current_resource + 1, cmd_list, device, heap, arena);
 	}
@@ -829,18 +840,18 @@ struct Update {
 	static func update(T list, dx_context*ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void { static_assert(!1, "");};
 };
 
-template<bool B, bool CP, typename TS>
-struct Update<t_list_cons<B, true, CP, buffer_cbuf, TS>> {
-	static func update(t_list_cons<B, true, CP, buffer_cbuf, TS> list, dx_context* ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
+template<bool B, bool CP, bool CFGC, typename TS>
+struct Update<t_list_cons<B, true, CP, CFGC, buffer_cbuf, TS>> {
+	static func update(t_list_cons<B, true, CP, CFGC, buffer_cbuf, TS> list, dx_context* ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
 		buffer_cbuf buffer = *arena->get_ptr(list.el);
 		memcpy(buffer.mapped_view, buffer.data, 256);
 		Update<TS>::update(list.tail, ctx, arena, resources_and_views, cmd_list);
 	}
 };
 
-template<bool B, bool CP, typename TS>
-struct Update<t_list_cons<B, true, CP, buffer_1d, TS>> {
-	static func update(t_list_cons<B, true, CP, buffer_1d, TS> list, dx_context* ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
+template<bool B, bool CP, bool CFGC, typename TS>
+struct Update<t_list_cons<B, true, CP, CFGC, buffer_1d, TS>> {
+	static func update(t_list_cons<B, true, CP, CFGC, buffer_1d, TS> list, dx_context* ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
 		buffer_1d buffer = *arena->get_ptr(list.el);
 		
 		u8* p_idx_data_begin;
@@ -857,9 +868,9 @@ struct Update<t_list_cons<B, true, CP, buffer_1d, TS>> {
 	}
 };
 
-template<bool B, bool U, bool CP, typename T, typename TS>
-struct Update<t_list_cons<B, U, CP, T, TS>> {
-	static func update(t_list_cons<B, U, CP, T, TS> list, dx_context*ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename T, typename TS>
+struct Update<t_list_cons<B, U, CP, CFGC, T, TS>> {
+	static func update(t_list_cons<B, U, CP, CFGC, T, TS> list, dx_context*ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
 		Update<TS>::update(list.tail, ctx, arena, resources_and_views, cmd_list);
 	}
 };
@@ -876,41 +887,41 @@ struct Resize {
 	static func resize(T list, ID3D12Device2* dev, memory_arena ar, descriptor_heap *heap, arena_array<resource_and_view> *rnv, u32 w, u32 h) -> void { static_assert(!1, "");};
 };
 
-template<bool U, bool CP, typename TS>
-struct Resize<t_list_cons<true, U, CP, buffer_2d, TS>> {
-	static func resize(t_list_cons<true, U, CP, buffer_2d, TS> list, ID3D12Device2* dev, memory_arena ar, descriptor_heap *heap, arena_array<resource_and_view> *rnv, u32 w, u32 h) -> void{
+template<bool U, bool CP, bool CFGC, typename TS>
+struct Resize<t_list_cons<true, U, CP, CFGC, buffer_2d, TS>> {
+	static func resize(t_list_cons<true, U, CP, CFGC, buffer_2d, TS> list, ID3D12Device2* dev, memory_arena ar, descriptor_heap *heap, arena_array<resource_and_view> *rnv, u32 w, u32 h) -> void{
 		ar.get_ptr(list.el)->recreate(dev, ar, heap, rnv, w, h, ar.get_ptr(list.el)->size_of_one_elem, ar.get_ptr(list.el)->data);
 		Resize<TS>::resize(list.tail, dev, ar, heap, rnv, w, h);
 	}
 };
 
-template<bool U, bool CP, typename TS>
-struct Resize<t_list_cons<true, U, CP, buffer_1d, TS>> {
-	static func resize(t_list_cons<true, U, CP, buffer_1d, TS> list, ID3D12Device2* dev, memory_arena ar, descriptor_heap *heap, arena_array<resource_and_view> *rnv, u32 w, u32 h)-> void {
+template<bool U, bool CP, bool CFGC, typename TS>
+struct Resize<t_list_cons<true, U, CP, CFGC, buffer_1d, TS>> {
+	static func resize(t_list_cons<true, U, CP, CFGC, buffer_1d, TS> list, ID3D12Device2* dev, memory_arena ar, descriptor_heap *heap, arena_array<resource_and_view> *rnv, u32 w, u32 h)-> void {
 		ar.get_ptr(list.el)->recreate(dev, ar, heap, rnv, w * h, ar.get_ptr(list.el)->size_of_one_elem, ar.get_ptr(list.el)->data);
 		Resize<TS>::resize(list.tail, dev, ar, heap, rnv, w, h);
 	}
 };
 
-template<bool U, bool CP, typename TS>
-struct Resize<t_list_cons<true, U, CP, render_target2d, TS>> {
-	static func resize(t_list_cons<true, U, CP, render_target2d, TS> list, ID3D12Device2* dev, memory_arena ar, descriptor_heap *heap, arena_array<resource_and_view> *rnv, u32 w, u32 h)-> void {
+template<bool U, bool CP, bool CFGC, typename TS>
+struct Resize<t_list_cons<true, U, CP, CFGC, render_target2d, TS>> {
+	static func resize(t_list_cons<true, U, CP, CFGC, render_target2d, TS> list, ID3D12Device2* dev, memory_arena ar, descriptor_heap *heap, arena_array<resource_and_view> *rnv, u32 w, u32 h)-> void {
 		ar.get_ptr(list.el)->recreate(dev, ar, heap, rnv, w, h);
 		Resize<TS>::resize(list.tail, dev, ar, heap, rnv, w, h);
 	}
 };
 
-template<bool U, bool CP, typename TS>
-struct Resize<t_list_cons<true, U, CP, render_target1d, TS>> {
-	static func resize(t_list_cons<true, U, CP, render_target1d, TS> list, ID3D12Device2* dev, memory_arena ar, descriptor_heap *heap, arena_array<resource_and_view> *rnv, u32 w, u32 h)-> void {
+template<bool U, bool CP, bool CFGC, typename TS>
+struct Resize<t_list_cons<true, U, CP, CFGC, render_target1d, TS>> {
+	static func resize(t_list_cons<true, U, CP, CFGC, render_target1d, TS> list, ID3D12Device2* dev, memory_arena ar, descriptor_heap *heap, arena_array<resource_and_view> *rnv, u32 w, u32 h)-> void {
 		ar.get_ptr(list.el)->recreate(dev, ar, heap, rnv, w * h);
 		Resize<TS>::resize(list.tail, dev, ar, heap, rnv, w, h);
 	}
 };
 
-template<bool U, bool CP, typename T, typename TS>
-struct Resize<t_list_cons<false, U, CP, T, TS>> {
-	static func resize(t_list_cons<false, U, CP, T, TS> list, ID3D12Device2* dev, memory_arena ar, descriptor_heap *heap, arena_array<resource_and_view> *rnv, u32 w, u32 h)-> void {
+template<bool U, bool CP, bool CFGC, typename T, typename TS>
+struct Resize<t_list_cons<false, U, CP, CFGC, T, TS>> {
+	static func resize(t_list_cons<false, U, CP, CFGC, T, TS> list, ID3D12Device2* dev, memory_arena ar, descriptor_heap *heap, arena_array<resource_and_view> *rnv, u32 w, u32 h)-> void {
 		Resize<TS>::resize(list.tail, dev, ar, heap, rnv, w, h);
 	}
 };
@@ -927,9 +938,9 @@ struct Finalize {
 	static func finalize (T list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void { static_assert(!1, "");};
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct Finalize<t_list_cons<B, U, CP, texture_2d, TS>> {
-	static func finalize(t_list_cons<B, U, CP, texture_2d, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct Finalize<t_list_cons<B, U, CP, CFGC, texture_2d, TS>> {
+	static func finalize(t_list_cons<B, U, CP, CFGC, texture_2d, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
 
 		texture_2d *texture_dsc = arena->get_ptr(list.el);
 		resource_and_view *r_n_v = &arena->get_array(resources_and_views)[texture_dsc->res_and_view_idx];
@@ -972,9 +983,9 @@ struct Finalize<t_list_cons<B, U, CP, texture_2d, TS>> {
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct Finalize<t_list_cons<B, U, CP, buffer_vtex, TS>> {
-	static func finalize(t_list_cons<B, U, CP, buffer_vtex, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct Finalize<t_list_cons<B, U, CP, CFGC, buffer_vtex, TS>> {
+	static func finalize(t_list_cons<B, U, CP, CFGC, buffer_vtex, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
 
 		buffer_vtex *buffer_desc = arena->get_ptr(list.el);
 		resource_and_view *r_n_v = &arena->get_array(resources_and_views)[buffer_desc->res_and_view_idx];
@@ -992,9 +1003,9 @@ struct Finalize<t_list_cons<B, U, CP, buffer_vtex, TS>> {
 	}
 };
 
-template<bool B, bool U, bool CP, typename TS>
-struct Finalize<t_list_cons<B, U, CP, buffer_idex, TS>> {
-	static func finalize(t_list_cons<B, U, CP, buffer_idex, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct Finalize<t_list_cons<B, U, CP, CFGC, buffer_idex, TS>> {
+	static func finalize(t_list_cons<B, U, CP, CFGC, buffer_idex, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
 
 		buffer_idex *buffer_desc = arena->get_ptr(list.el);
 		resource_and_view *r_n_v = &arena->get_array(resources_and_views)[buffer_desc->res_and_view_idx];
@@ -1012,9 +1023,27 @@ struct Finalize<t_list_cons<B, U, CP, buffer_idex, TS>> {
 	}
 };
 
-template<bool B, bool U, bool CP, typename T, typename TS>
-struct Finalize<t_list_cons<B, U, CP, T, TS>> {
-	static func finalize(t_list_cons<B, U, CP, T, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views,ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename TS>
+struct Finalize<t_list_cons<B, U, CP, CFGC, buffer_1d, TS>> {
+	static func finalize(t_list_cons<B, U, CP, CFGC, buffer_1d, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
+
+		buffer_1d *buffer_desc = arena->get_ptr(list.el);
+
+		if(buffer_desc->stg_buff) {
+			resource_and_view *r_n_v = &arena->get_array(resources_and_views)[buffer_desc->res_and_view_idx];
+
+			auto addr4 = CD3DX12_RESOURCE_BARRIER::Transition(r_n_v->addr, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDEX_BUFFER/* | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE*/);
+			cmd_list->CopyBufferRegion(r_n_v->addr, 0, buffer_desc->stg_buff, 0, buffer_desc->size_of_data);
+			cmd_list->ResourceBarrier(1, &addr4);
+		}
+
+		Finalize<TS>::finalize(list.tail, ctx, arena, resources_and_views, cmd_list, heap);
+	}
+};
+
+template<bool B, bool U, bool CP, bool CFGC, typename T, typename TS>
+struct Finalize<t_list_cons<B, U, CP, CFGC, T, TS>> {
+	static func finalize(t_list_cons<B, U, CP, CFGC, T, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views,ID3D12GraphicsCommandList *cmd_list, descriptor_heap* heap) -> void {
 		Finalize<TS>::finalize(list.tail, ctx, arena, resources_and_views, cmd_list, heap);
 	}
 };
@@ -1031,9 +1060,9 @@ struct CTRT {
 	static func copy_to_render_target (T list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void { static_assert(!1, "");};
 };
 
-template<bool B, bool U, typename TS>
-struct CTRT<t_list_cons<B, U, true, render_target2d, TS>> {
-	static func copy_to_render_target(t_list_cons<B, U, true, render_target2d, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
+template<bool B, bool U, bool CFGC, typename TS>
+struct CTRT<t_list_cons<B, U, true, CFGC, render_target2d, TS>> {
+	static func copy_to_render_target(t_list_cons<B, U, true, CFGC, render_target2d, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
 		render_target2d *rt2_desc = arena->get_ptr(list.el);
 		resource_and_view *r_n_v = &arena->get_array(resources_and_views)[rt2_desc->res_and_view_idx];
 
@@ -1046,9 +1075,9 @@ struct CTRT<t_list_cons<B, U, true, render_target2d, TS>> {
 	}
 };
 
-template<bool B, bool U, bool CP, typename T, typename TS>
-struct CTRT<t_list_cons<B, U, CP, T, TS>> {
-	static func copy_to_render_target(t_list_cons<B, U, CP, T, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename T, typename TS>
+struct CTRT<t_list_cons<B, U, CP, CFGC, T, TS>> {
+	static func copy_to_render_target(t_list_cons<B, U, CP, CFGC, T, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
 		CTRT<TS>::copy_to_render_target(list.tail, ctx, arena, resources_and_views, cmd_list);
 	}
 };
@@ -1065,9 +1094,9 @@ struct CRTS {
 	static func copy_screen_to_render_target (T list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void { static_assert(!1, "");};
 };
 
-template<bool B, bool U, typename TS>
-struct CRTS<t_list_cons<B, U, true, render_target2d, TS>> {
-	static func copy_screen_to_render_target(t_list_cons<B, U, true, render_target2d, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
+template<bool B, bool U, bool CFGC, typename TS>
+struct CRTS<t_list_cons<B, U, true, CFGC, render_target2d, TS>> {
+	static func copy_screen_to_render_target(t_list_cons<B, U, true, CFGC, render_target2d, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
 		render_target2d *rt2_desc = arena->get_ptr(list.el);
 		resource_and_view *r_n_v = &arena->get_array(resources_and_views)[rt2_desc->res_and_view_idx];
 
@@ -1082,9 +1111,9 @@ struct CRTS<t_list_cons<B, U, true, render_target2d, TS>> {
 	}
 };
 
-template<bool B, bool U, bool CP, typename T, typename TS>
-struct CRTS<t_list_cons<B, U, CP, T, TS>> {
-	static func copy_screen_to_render_target(t_list_cons<B, U, CP, T, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
+template<bool B, bool U, bool CP, bool CFGC, typename T, typename TS>
+struct CRTS<t_list_cons<B, U, CP, CFGC, T, TS>> {
+	static func copy_screen_to_render_target(t_list_cons<B, U, CP, CFGC, T, TS> list, dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList *cmd_list) -> void {
 		CRTS<TS>::copy_screen_to_render_target(list.tail, ctx, arena, resources_and_views, cmd_list);
 	}
 };

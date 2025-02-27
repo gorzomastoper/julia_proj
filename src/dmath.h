@@ -1,5 +1,6 @@
 #pragma once
 #include <immintrin.h>
+#include <xmmintrin.h>
 #include "util/types.h"
 #include "math.h"
 
@@ -185,6 +186,18 @@ union v2
 		f32 z;
 		f32 w;
 	};
+
+inline u32 
+next_power_of_two(u32 n) {
+	if(n == 0) return 1;
+	n--;
+	n |= n >> 1;
+	n |= n >> 2;
+	n |= n >> 4;
+	n |= n >> 8;
+	n |= n >> 16;
+	return n + 1;
+}
 
 inline i32
 SignOf(i32 Value)
@@ -1392,34 +1405,37 @@ operator*(mat4 A, v4 B)
 {
 	v4 Result;
 
-	__m256 mtx_1 	= _mm256_set_ps(A.Value1_1, A.Value1_2, A.Value1_3, A.Value1_4, A.Value2_1, A.Value2_2, A.Value2_3, A.Value2_4);
-	__m256 mtx_2 	= _mm256_set_ps(A.Value3_1, A.Value3_2, A.Value3_3, A.Value3_4, A.Value4_1, A.Value4_2, A.Value4_3, A.Value4_4);
-	__m256 vector 	= _mm256_set_ps(B.x, B.y, B.z, B.w, B.x, B.y, B.z, B.w);
+	// __m256 mtx_1 	= _mm256_set_ps(A.Value1_1, A.Value1_2, A.Value1_3, A.Value1_4, A.Value2_1, A.Value2_2, A.Value2_3, A.Value2_4);
+	// __m256 mtx_2 	= _mm256_set_ps(A.Value3_1, A.Value3_2, A.Value3_3, A.Value3_4, A.Value4_1, A.Value4_2, A.Value4_3, A.Value4_4);
+	// __m256 vector 	= _mm256_set_ps(B.x, B.y, B.z, B.w, B.x, B.y, B.z, B.w);
 
-	__m256 result_xy = _mm256_mul_ps(vector, mtx_1);
-	__m256 result_zw = _mm256_mul_ps(vector, mtx_2);
+	// __m256 result_xy = _mm256_mul_ps(vector, mtx_1);
+	// __m256 result_zw = _mm256_mul_ps(vector, mtx_2);
 
-	f32 res_1[8];
-	f32 res_2[8];
+	// f32 res_1[8];
+	// f32 res_2[8];
 	
-	_mm256_storeu_ps(res_1, result_xy);
-	_mm256_storeu_ps(res_2, result_zw);
+	// _mm256_storeu_ps(res_1, result_xy);
+	// _mm256_storeu_ps(res_2, result_zw);
 
-	mtx_1 = _mm256_set_ps(res_1[0], res_1[2], res_1[4], res_1[6], res_2[0], res_2[2], res_2[4], res_2[6]);
-	mtx_2 = _mm256_set_ps(res_1[1], res_1[3], res_1[5], res_1[7], res_2[1], res_2[3], res_2[5], res_2[7]);
+	// mtx_1 = _mm256_set_ps(res_1[0], res_1[2], res_1[4], res_1[6], res_2[0], res_2[2], res_2[4], res_2[6]);
+	// mtx_2 = _mm256_set_ps(res_1[1], res_1[3], res_1[5], res_1[7], res_2[1], res_2[3], res_2[5], res_2[7]);
 
-	__m256 result = _mm256_add_ps(mtx_1, mtx_2);
-	_mm256_storeu_ps(res_1, result);
+	// __m256 result = _mm256_add_ps(mtx_1, mtx_2);
+	// _mm256_storeu_ps(res_1, result);
 
-	Result.x = res_1[0] + res_1[1];
-	Result.y = res_1[2] + res_1[3];
-	Result.z = res_1[4] + res_1[5];
-	Result.w = res_1[6] + res_1[7];
+	// __m128 final_result = _mm_add_ps(_mm_set_ps(res_1[0], res_1[2], res_1[4], res_1[6]), _mm_set_ps(res_1[1], res_1[3], res_1[5], res_1[7]));
+	// _mm_storeu_ps((f32*)&Result, final_result);
+
+	// Result.x = res_1[0] + res_1[1];
+	// Result.y = res_1[2] + res_1[3];
+	// Result.z = res_1[4] + res_1[5];
+	// Result.w = res_1[6] + res_1[7];
 	
-	// Result.x = (B.x * A.Value1_1) + (B.y * A.Value1_2) + (B.z * A.Value1_3) + (B.w * A.Value1_4);
-	// Result.y = (B.x * A.Value2_1) + (B.y * A.Value2_2) + (B.z * A.Value2_3) + (B.w * A.Value2_4);
-	// Result.z = (B.x * A.Value3_1) + (B.y * A.Value3_2) + (B.z * A.Value3_3) + (B.w * A.Value3_4);
-	// Result.w = (B.x * A.Value4_1) + (B.y * A.Value4_2) + (B.z * A.Value4_3) + (B.w * A.Value4_4);
+	Result.x = (B.x * A.Value1_1) + (B.y * A.Value1_2) + (B.z * A.Value1_3) + (B.w * A.Value1_4);
+	Result.y = (B.x * A.Value2_1) + (B.y * A.Value2_2) + (B.z * A.Value2_3) + (B.w * A.Value2_4);
+	Result.z = (B.x * A.Value3_1) + (B.y * A.Value3_2) + (B.z * A.Value3_3) + (B.w * A.Value3_4);
+	Result.w = (B.x * A.Value4_1) + (B.y * A.Value4_2) + (B.z * A.Value4_3) + (B.w * A.Value4_4);
 	
 	return Result;
 }
