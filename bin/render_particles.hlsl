@@ -17,16 +17,16 @@ cbuffer scene_cbuffer : register(b0)
 	float4 padding[10]; // For 256-byte size alignment
 };
 
-// cbuffer simulation_properties : register(b1) {
-// 	float particle_count;
-// 	float smoothing_radius;
-// 	float pressure;
-// 	float max_velocity;
-// 	float4 color_a;
-// 	float4 color_b;
-// 	float4 color_c;
-// 	float4 padding_[12]; // For 256-byte size alignment
-// };
+cbuffer simulation_properties : register(b1) {
+	float particle_count;
+	float smoothing_radius;
+	float pressure;
+	float max_velocity;
+	float4 color_a;
+	float4 color_b;
+	float4 color_c;
+	float4 padding_[12]; // For 256-byte size alignment
+};
 
 struct PSInput
 {
@@ -38,7 +38,7 @@ struct PSInput
 // Texture2D g_texture : register(t0);
 // SamplerState g_sampler : register(s0);
 RWStructuredBuffer <float4x4> model_matrices_for_objects : register(u6);
-// RWBuffer <float2> velocity_buffer : register(u1); 
+RWBuffer <float2> velocity_buffer : register(u2); 
 
 PSInput VSMain(float4 position : POSITION, float2 uv : TEXCOORD, uint instanceID : SV_InstanceID)
 {
@@ -47,10 +47,10 @@ PSInput VSMain(float4 position : POSITION, float2 uv : TEXCOORD, uint instanceID
 	result.position = mul(position, MVP);
 	result.position.xyz /= -result.position.w;
 
-	// float speed = length(velocity_buffer[instanceID]);
-	// float speed_t = saturate(speed / max_velocity);
-	// result.color = lerp(color_a, lerp(color_b, color_c, speed_t), speed_t);
-	result.color = float4(1.0f, 1.0f, 0.0f, 1.0f);
+	float speed = length(velocity_buffer[instanceID]);
+	float speed_t = saturate(speed / max_velocity);
+	result.color = lerp(color_a, lerp(color_b, color_c, speed_t), speed_t);
+	// result.color = float4(1.0f, 1.0f, 0.0f, 1.0f);
     result.uv = uv;
     return result;
 }

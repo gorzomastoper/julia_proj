@@ -99,7 +99,7 @@ struct particle_simulation {
 };
 
 static inline func initialize_simulation(dx_context *ctx, u32 particle_count, f32 gravity, f32 collision_damping) -> particle_simulation;
-inline func update_settings(particle_simulation* sim, f32 delta_time, v2 mouse_pos, bool is_left_mouse, bool is_right_mouse) -> void;
+inline func update_settings(particle_simulation* sim, f32 delta_time, v2 mouse_pos, u32 width, u32 height, bool is_left_mouse, bool is_right_mouse) -> void;
 func generate_command_buffer(dx_context *context, memory_arena arena, ID3D12GraphicsCommandList *cmd_list, ID3D12CommandAllocator **cmd_allocators, descriptor_heap heap, rendering_stage rndr_stage) -> ID3D12GraphicsCommandList*;
 func generate_compute_command_buffer(dx_context *ctx, memory_arena arena, arena_array<resource_and_view> r_n_v, ID3D12GraphicsCommandList *cmd_list, descriptor_heap heap, rendering_stage rndr_stage, u32 width, u32 height) -> ID3D12GraphicsCommandList*;
 func generate_compute_fxaa_CB(dx_context *ctx, memory_arena arena, arena_array<resource_and_view> r_n_v, ID3D12GraphicsCommandList *cmd_list, descriptor_heap heap, rendering_stage rndr_stage, u32 width, u32 height) -> ID3D12GraphicsCommandList*;

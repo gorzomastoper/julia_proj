@@ -25,17 +25,17 @@ cbuffer simulation_properties : register(b0) {
 	float4 padding[8];
 };
 
-static const uint num_threads = 64;
+static const uint num_threads = 128;
 static const int2 offsets_2d[9] = {
-	int2(-1, +1),
-	int2(+0, +1),
-	int2(+1, +1),
-	int2(-1, +0),
-	int2(+0, +0),
-	int2(+1, +0),
+	int2(-1, 1),
+	int2(0, 1),
+	int2(1, 1),
+	int2(-1, 0),
+	int2(0, 0),
+	int2(1, 0),
 	int2(-1, -1),
-	int2(+0, -1),
-	int2(+1, -1),
+	int2(0, -1),
+	int2(1, -1),
 };
 
 static const uint hash_k1 = 15823;
@@ -62,6 +62,14 @@ struct spatial_data {
 	uint key;
 };
 
+struct Info {
+	uint num_entries;
+	uint group_width;
+	uint group_height;
+	uint step_index;
+	uint num_per_dispatch;
+};
+
 RWBuffer<float2> 					positions 			: register(u0);
 RWBuffer<float2> 					predicted_positions : register(u1);
 RWBuffer<float2> 					velocities 			: register(u2);
@@ -69,6 +77,51 @@ RWBuffer<float2> 					densities  			: register(u3);
 RWStructuredBuffer<spatial_data> 	spacial_indices		: register(u4);
 RWBuffer<uint3> 					spacial_offsets		: register(u5);
 RWStructuredBuffer<float4x4> 		matrices			: register(u6);
+RWStructuredBuffer <Info> 			Infos 				: register(u7);
+
+// Sorting entries by their keys (smallest to largest). This is done by bitonic merge sort
+[numthreads(128, 1, 1)]
+void Sort(uint3 id : SV_DispatchThreadID, uint3 group_id : SV_GroupID) {
+	uint i = id.x;
+
+	uint group_width 	= Infos[(group_id.x / Infos[0].num_per_dispatch)].group_width;
+	uint group_height 	= Infos[(group_id.x / Infos[0].num_per_dispatch)].group_height;
+	uint step_index 	= Infos[(group_id.x / Infos[0].num_per_dispatch)].step_index;
+	uint num_entries 	= Infos[(group_id.x / Infos[0].num_per_dispatch)].num_entries;
+
+	uint h_index = i & (group_width - 1);
+	uint index_left = h_index + (group_height + 1) * (i / group_width);
+	uint right_step_size = step_index == 0 ? group_height - 2 * h_index : (group_height + 1) / 2;
+	uint index_right = index_left + right_step_size;
+
+	if(index_right >= num_entries) return;
+
+	uint value_left = spacial_indices[index_left].key;
+	uint value_right = spacial_indices[index_right].key;
+
+	if(value_left > value_right) {
+		spatial_data temp = spacial_indices[index_left];
+		spacial_indices[index_left] = spacial_indices[index_right];
+		spacial_indices[index_right] = temp;
+	}
+}
+
+[numthreads(128, 1, 1)]
+void Calculate_Offsets(uint3 id : SV_DispatchThreadID) {
+	uint num_entries = Infos[0].num_entries;
+
+	if(id.x >= num_entries) return;
+
+	uint i = id.x;
+	uint null = num_entries;
+
+	uint key = spacial_indices[i].key;
+	uint key_prev = i == 0 ? null : spacial_indices[i - 1].key;
+
+	if(key != key_prev) {
+		spacial_offsets[key] = i;
+	}
+}
 
 float smoothing_kernel_poly_6(float dst, float radius) {
 	if(dst < radius) {
@@ -116,7 +169,19 @@ float2 calculate_density(float2 pos) {
 	float density = 0;
 	float near_density = 0;
 
-	for(uint i = 0 ; i < 8; ++i) {
+	// for(uint i = 0 ; i < particle_count; ++i) {
+	// 	float2 neighbour_pos = predicted_positions[i];
+	// 	float2 offset_to_neighbour = neighbour_pos - pos;
+	// 	float sqr_dst_to_neighbour = dot(offset_to_neighbour, offset_to_neighbour);
+
+	// 	// if(sqr_dst_to_neighbour > sqr_radius) continue;
+
+	// 	float dst = sqrt(sqr_dst_to_neighbour);
+	// 	density += spiky_kernel_pow_2(dst, smoothing_radius);
+	// 	near_density += spiky_kernel_pow_3(dst, smoothing_radius);
+	// }
+
+	for(uint i = 0 ; i < 9; ++i) {
 		uint hash = hash_cell_2d(origin_cell + offsets_2d[i]);
 		uint key = key_from_hash(hash, particle_count);
 		uint curr_index = spacial_offsets[key];
@@ -162,9 +227,11 @@ float4x4 translation_matrix(float2 position) {
 }
 
 float2 external_force(float2 pos, float2 velocity) {
+
 	float2 gravity_accel = float2(0, gravity);
 
-	if(pull_push_strength != 0) {
+	if(pull_push_strength != 0) 
+	{
 		float2 input_point_offset = pull_push_input_point - pos;
 		float sqr_dst = dot(input_point_offset, input_point_offset);
 		if(sqr_dst < pull_push_radius * pull_push_radius) {
@@ -176,6 +243,7 @@ float2 external_force(float2 pos, float2 velocity) {
 			float gravity_weight = 1 - (center_t * saturate(pull_push_strength / 10));
 			float2 accel = gravity_accel * gravity_weight + dir_to_center * center_t * pull_push_strength;
 			accel -= velocity * center_t;
+			return accel;
 		}
 	}
 
@@ -206,7 +274,7 @@ void handle_collisions(uint particle_index) {
 void external_forces (uint3 id : SV_DispatchThreadID) {
 	if(id.x >= particle_count) return;
 
-	velocities[id.x] = external_force(positions[id.x], velocities[id.x]) * delta_time;
+	velocities[id.x] += external_force(positions[id.x], velocities[id.x]) * delta_time;
 
 	float prediction_factor = 1.0f / 120.f;
 	predicted_positions[id.x] = positions[id.x] + velocities[id.x] * prediction_factor;
@@ -223,6 +291,19 @@ void calculate_viscosity (uint3 id : SV_DispatchThreadID) {
 	float2 viscosity_force = 0;
 	float2 velocity = velocities[id.x];
 
+	// for(uint i = 0 ; i < particle_count; ++i) {
+	// 	if(i == id.x) continue;
+	// 	float2 neighbour_pos = predicted_positions[i];
+	// 	float2 offset_to_neighbour = neighbour_pos - pos;
+	// 	float sqr_dst_to_neighbour = dot(offset_to_neighbour, offset_to_neighbour);
+
+	// 	// if(sqr_dst_to_neighbour > sqr_radius) continue;
+
+	// 	float dst = sqrt(sqr_dst_to_neighbour);
+	// 	float2 neighbour_velocity = velocities[i];
+	// 	viscosity_force += (neighbour_velocity - velocity) * smoothing_kernel_poly_6(dst, smoothing_radius);
+	// }
+
 	for(uint i = 0 ; i < 9; ++i) {
 		uint hash = hash_cell_2d(origin_cell + offsets_2d[i]);
 		uint key = key_from_hash(hash, particle_count);
@@ -230,6 +311,7 @@ void calculate_viscosity (uint3 id : SV_DispatchThreadID) {
 
 		while(curr_index < particle_count) {
 			spatial_data index_data = spacial_indices[curr_index];
+			++curr_index;
 
 			if(index_data.key != key) break;
 			if(index_data.hash != hash) continue;
@@ -294,6 +376,26 @@ void calculate_pressure (uint3 id : SV_DispatchThreadID) {
 	float2 viscosity_force = 0;
 	float2 velocity = velocities[id.x];
 
+	// for(uint i = 0 ; i < particle_count; ++i) {
+	// 	if(i == id.x) continue;
+	// 	float2 neighbour_pos = predicted_positions[i];
+	// 	float2 offset_to_neighbour = neighbour_pos - pos;
+	// 	float sqr_dst_to_neighbour = dot(offset_to_neighbour, offset_to_neighbour);
+	// 	float dst = sqrt(sqr_dst_to_neighbour);
+	// 	float2 dir_to_neighbour = dst > 0 ? offset_to_neighbour / dst : float2(0, 1);
+		
+	// 	float neighbour_density = densities[i].x;
+	// 	float neighbour_near_density = densities[i].y;
+	// 	float neighbour_pressure = pressure_from_density(neighbour_density);
+	// 	float neighbour_near_pressure = near_pressure_from_density(neighbour_near_density);
+
+	// 	float shared_pressure = (pressure + neighbour_pressure) * 0.5f;
+	// 	float shared_near_pressure = (near_pressure + neighbour_near_pressure) * 0.5f;
+
+	// 	pressure_force += dir_to_neighbour * derivative_spiky_kernel_pow_2(dst, smoothing_radius) * shared_pressure / neighbour_density;
+	// 	pressure_force += dir_to_neighbour * derivative_spiky_kernel_pow_3(dst, smoothing_radius) * shared_near_pressure / neighbour_near_density;
+	// }
+
 	for(uint i = 0 ; i < 9; ++i) {
 		uint hash = hash_cell_2d(origin_cell + offsets_2d[i]);
 		uint key = key_from_hash(hash, particle_count);
@@ -301,6 +403,7 @@ void calculate_pressure (uint3 id : SV_DispatchThreadID) {
 
 		while(curr_index < particle_count) {
 			spatial_data index_data = spacial_indices[curr_index];
+			++curr_index;
 
 			if(index_data.key != key) break;
 			if(index_data.hash != hash) continue;
@@ -323,7 +426,7 @@ void calculate_pressure (uint3 id : SV_DispatchThreadID) {
 			float neighbour_density = densities[id.x].x;
 			float neighbour_near_density = densities[id.x].y;
 			float neighbour_pressure = pressure_from_density(neighbour_density);
-			float neighbour_near_pressure = near_pressure_from_density(neighbour_density);
+			float neighbour_near_pressure = near_pressure_from_density(neighbour_near_density);
 
 			float shared_pressure = (pressure + neighbour_pressure) * 0.5f;
 			float shared_near_pressure = (near_pressure + neighbour_near_pressure) * 0.5f;

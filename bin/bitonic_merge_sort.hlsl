@@ -30,10 +30,10 @@ RWBuffer<uint> Offsets : register(u5);
 void Sort(uint3 id : SV_DispatchThreadID, uint3 group_id : SV_GroupID) {
 	uint i = id.x;
 
-	uint group_width 	= Infos[id.x * group_id.x / Infos[0].num_per_dispatch].group_width;
-	uint group_height 	= Infos[id.x * group_id.x / Infos[0].num_per_dispatch].group_height;
-	uint step_index 	= Infos[id.x * group_id.x / Infos[0].num_per_dispatch].step_index;
-	uint num_entries 	= Infos[id.x * group_id.x / Infos[0].num_per_dispatch].num_entries;
+	uint group_width 	= Infos[(group_id.x / Infos[0].num_per_dispatch)].group_width;
+	uint group_height 	= Infos[(group_id.x / Infos[0].num_per_dispatch)].group_height;
+	uint step_index 	= Infos[(group_id.x / Infos[0].num_per_dispatch)].step_index;
+	uint num_entries 	= Infos[(group_id.x / Infos[0].num_per_dispatch)].num_entries;
 
 	uint h_index = i & (group_width - 1);
 	uint index_left = h_index + (group_height + 1) * (i / group_width);

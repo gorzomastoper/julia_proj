@@ -278,7 +278,15 @@ struct graphic_pipeline {
 	ID3DBlob* 						pixel_shader_blob;
 	u32								number_of_resources;
 	u32								mesh_instance_num;
-	arena_ptr<void> 				bindings;	
+	arena_ptr<void> 				bindings;
+
+	buffer_1d el1;
+	buffer_1d el2;
+	buffer_1d el3;
+	buffer_1d el4;
+	buffer_1d el5;
+	buffer_1d el6;
+	buffer_1d el7;
 
 	public:
 	static inline func init__(arena_ptr<void> bindings, 
@@ -317,6 +325,14 @@ struct compute_pipeline {
 	ID3DBlob* 						shader_blob;
 	u32								number_of_resources;
 	arena_ptr<void> 				bindings;
+
+	buffer_1d el1;
+	buffer_1d el2;
+	buffer_1d el3;
+	buffer_1d el4;
+	buffer_1d el5;
+	buffer_1d el6;
+	buffer_1d el7;
 
 public:
 	static inline func init__	(arena_ptr<void> bindings, 

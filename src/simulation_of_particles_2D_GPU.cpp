@@ -54,6 +54,55 @@ func particle_simulation::particle_sim_start_frame(u32 frame_idx, ID3D12Graphics
 	record_reset_cmd_list(cmd_list, command_allocators[frame_idx], pipeline_state);
 }
 
+// NOTE(DH): Convert position to the coordinate of the cell it is within
+static inline func position_to_cell_coord (v2 point, f32 radius) -> v2i {
+	i32 cell_x = i32(point.x / radius);
+	i32 cell_y = i32(point.y / radius);
+	return V2i(cell_x, cell_y);
+}
+
+// NOTE(DH): Convert a cell coordinate into a single number
+// Hash collisions (different cells -> same value) are unavoidable, but we want to
+// at least try to minimize collisions for nearby cells. Mabe better ways is exist, but
+// this is my approach, so it works for now :)
+static inline func hash_cell(i32 cell_x, i32 cell_y) -> u32 {
+	u32 a = (u32)cell_x * 15823;
+	u32 b = (u32)cell_y * 9737333;
+	return a + b;
+}
+
+// NOTE(DH): Wrap the hash value around the length of the array (so it can be used as an index)
+static inline func get_key_from_hash(u32 hash, u32 array_count) -> u32 {
+	return hash % array_count;
+}
+
+inline func particle_simulation::update_spatial_lookup(f32 radius) -> void {
+	auto indices = arena.get_array(this->start_indices);
+	auto lookup = arena.get_array(this->spatial_lookup);
+	auto points	= arena.get_array(this->predicted_positions);
+
+	for(u32 i = 0 ; i < this->positions.count; ++i) {
+		v2i cell = position_to_cell_coord(points[i], radius);
+		u32 cell_key = get_key_from_hash(hash_cell(cell.x, cell.y), this->positions.count);
+		lookup[i] = {.particle_index = i, .cell_key = cell_key};
+		indices[i] = INT_MAX;
+	}
+
+	auto sort_func = [](spatial_data a, spatial_data b) {
+		return a.cell_key < b.cell_key;
+	};
+
+	std::sort(lookup, lookup + this->spatial_lookup.count, sort_func);
+
+	for(u32 i = 0; i < this->positions.count; ++i) {
+		u32 key = lookup[i].cell_key;
+		u32 key_prev = (i == 0) ? UINT_MAX : lookup[i - 1].cell_key;
+		if(key != key_prev) {
+			indices[key] = i;
+		}
+	}
+}
+
 ID3D12GraphicsCommandList* generate_command_buffer(dx_context *context, memory_arena arena, ID3D12GraphicsCommandList *cmd_list, ID3D12CommandAllocator **cmd_allocators, descriptor_heap heap, rendering_stage rndr_stage)
 {
 	auto cmd_allocator = get_command_allocator(context->g_frame_index, cmd_allocators);
@@ -103,40 +152,25 @@ ID3D12GraphicsCommandList* generate_command_buffer(dx_context *context, memory_a
 	return cmd_list;
 }
 
-inline func update_settings(particle_simulation* sim, f32 delta_time, v2 mouse_pos, bool is_left_mouse, bool is_right_mouse) -> void {
+inline func update_settings(particle_simulation* sim, f32 delta_time, v2 mouse_pos, u32 width, u32 height, bool is_left_mouse, bool is_right_mouse) -> void {
 	sim->info_for_cshader.smoothing_kernel_poly_6_scaling_factor 		= 4.0f / (std::numbers::pi * pow(sim->info_for_cshader.smoothing_radius, 8));
 	sim->info_for_cshader.spiky_kernel_pow_3_scaling_factor 			= 10.0f / (std::numbers::pi * pow(sim->info_for_cshader.smoothing_radius, 5));
 	sim->info_for_cshader.spiky_kernel_pow_2_scaling_factor 			= 6.0f / (std::numbers::pi * pow(sim->info_for_cshader.smoothing_radius, 4));
 	sim->info_for_cshader.derivative_spiky_kernel_pow_3_scaling_factor 	= 30.0f / (std::numbers::pi * pow(sim->info_for_cshader.smoothing_radius, 5));
-	sim->info_for_cshader.spiky_kernel_pow_2_scaling_factor 			= 12.0f / (std::numbers::pi * pow(sim->info_for_cshader.smoothing_radius, 4));
+	sim->info_for_cshader.derivative_spiky_kernel_pow_2_scaling_factor 	= 12.0f / (std::numbers::pi * pow(sim->info_for_cshader.smoothing_radius, 4));
+
+	f32 aspect = (f32)width / (f32)height;
+	f32 scale = 5.0f;
+	v2 mouse_centered = V2((-mouse_pos.x + (width / 2)), mouse_pos.y - (height / 2));
+	mat4 MV = translation_matrix(V4(V3(mouse_centered, 1.0f), 1.0f)) * screen_to_ndc(width, height, scale, aspect);
+	v4 ndc_mouse_pos = V4(V3(mouse_centered, 1.0f), 1.0f) * MV;
 
 	f32 current_interact_strength = 0;
 	if(is_left_mouse || is_right_mouse) {
 		current_interact_strength = is_left_mouse ? -sim->interaction_strength : sim->interaction_strength;
 	}
 	sim->info_for_cshader.pull_push_strength = current_interact_strength;
-}
-
-// NOTE(DH): Convert position to the coordinate of the cell it is within
-static inline func position_to_cell_coord (v2 point, f32 radius) -> v2i {
-	i32 cell_x = i32(point.x / radius);
-	i32 cell_y = i32(point.y / radius);
-	return V2i(cell_x, cell_y);
-}
-
-// NOTE(DH): Convert a cell coordinate into a single number
-// Hash collisions (different cells -> same value) are unavoidable, but we want to
-// at least try to minimize collisions for nearby cells. Mabe better ways is exist, but
-// this is my approach, so it works for now :)
-static inline func hash_cell(i32 cell_x, i32 cell_y) -> u32 {
-	u32 a = (u32)cell_x * 15823;
-	u32 b = (u32)cell_y * 9737333;
-	return a + b;
-}
-
-// NOTE(DH): Wrap the hash value around the length of the array (so it can be used as an index)
-static inline func get_key_from_hash(u32 hash, u32 array_count) -> u32 {
-	return hash % array_count;
+	sim->info_for_cshader.pull_push_input_point = ndc_mouse_pos.xy;
 }
 
 inline func particle_simulation::simulation_step(dx_context *ctx, f32 delta_time, u32 width, u32 height, v2 mouse_pos, bool is_left_mouse, bool is_right_mouse) -> void {
@@ -167,14 +201,39 @@ inline func particle_simulation::simulation_step(dx_context *ctx, f32 delta_time
 	// NOTE(DH): Init resources and get all pipelines, set initial states }
 
 	// DISPATCH EXTERNAL FORCES
-	cmd_list->Dispatch(positions.count, 1, 1);
+	cmd_list->Dispatch(positions.count / 128, 1, 1);
+	
+	auto r_n_v = arena.get_array(resources_and_views);
+
+	auto res1 = r_n_v[external_forces_pipeline.el1.res_and_view_idx];
+	auto res2 = r_n_v[external_forces_pipeline.el2.res_and_view_idx];
+	auto res3 = r_n_v[external_forces_pipeline.el3.res_and_view_idx];
+	auto res4 = r_n_v[external_forces_pipeline.el4.res_and_view_idx];
+	auto res5 = r_n_v[external_forces_pipeline.el5.res_and_view_idx];
+	auto res6 = r_n_v[external_forces_pipeline.el6.res_and_view_idx];
+	auto res7 = r_n_v[external_forces_pipeline.el7.res_and_view_idx];
+
+	auto transition1 = CD3DX12_RESOURCE_BARRIER::UAV(res1.addr);
+	auto transition2 = CD3DX12_RESOURCE_BARRIER::UAV(res2.addr);
+	auto transition3 = CD3DX12_RESOURCE_BARRIER::UAV(res3.addr);
+	auto transition4 = CD3DX12_RESOURCE_BARRIER::UAV(res4.addr);
+	auto transition5 = CD3DX12_RESOURCE_BARRIER::UAV(res5.addr);
+	auto transition6 = CD3DX12_RESOURCE_BARRIER::UAV(res6.addr);
+	auto transition7 = CD3DX12_RESOURCE_BARRIER::UAV(res7.addr);
+
+	record_resource_barrier(1, transition1, cmd_list);
 
 	// DISPATCH SPATIAL HASH
 	cmd_list->SetPipelineState(spatial_hash_pipeline.state);
 	cmd_list->Dispatch(positions.count, 1, 1);
 
+	record_resource_barrier(1, transition2, cmd_list);
+	record_resource_barrier(1, transition3, cmd_list);
+
+	// record_resource_barrier(1, transition1, cmd_list);
+
 	// // DISPATCH SORTING AND CALC OFFSETS
-	// info_for_sorting.num_entries = positions.count;
+	info_for_sorting.num_entries = positions.count;
 	cmd_list->SetComputeRootSignature(gpu_sort_pipeline.root_signature);
 	cmd_list->SetPipelineState(gpu_sort_pipeline.state);
 
@@ -184,9 +243,16 @@ inline func particle_simulation::simulation_step(dx_context *ctx, f32 delta_time
 	u32 num_of_dispatches = (num_stages * (num_stages + 1)) / 2;
 	cmd_list->Dispatch((next_power_of_two(positions.count) / 2) * num_of_dispatches, 1, 1);
 
+	record_resource_barrier(1, transition2, cmd_list);
+	record_resource_barrier(1, transition3, cmd_list);
+
 	cmd_list->SetComputeRootSignature(gpu_offsets_pipeline.root_signature);
 	cmd_list->SetPipelineState(gpu_offsets_pipeline.state);
 	cmd_list->Dispatch(positions.count, 1, 1);
+
+	
+	record_resource_barrier(1, transition2, cmd_list);
+	record_resource_barrier(1, transition3, cmd_list);
 	
 	// // DISPATCH DENSITY CALC
 	cmd_list->SetComputeRootSignature(density_pipeline.root_signature);
@@ -194,18 +260,28 @@ inline func particle_simulation::simulation_step(dx_context *ctx, f32 delta_time
 	
 	density_pipeline.generate_binding_table(ctx, &simulation_desc_heap, &arena, cmd_list, density_pipeline.bindings);
 	cmd_list->Dispatch(positions.count, 1, 1);
+	
+	// update_spatial_lookup(info_for_cshader.smoothing_radius);
+
+	record_resource_barrier(1, transition1, cmd_list);
 
 	// // DISPATCH PRESSURE CALC
-	// cmd_list->SetPipelineState(pressure_pipeline.state);
-	// cmd_list->Dispatch(positions.count, 1, 1);
+	cmd_list->SetPipelineState(pressure_pipeline.state);
+	cmd_list->Dispatch(positions.count, 1, 1);
+
+	record_resource_barrier(1, transition1, cmd_list);
 
 	// // DISPATCH VISCOSITY CALC
-	// cmd_list->SetPipelineState(viscosity_pipeline.state);
-	// cmd_list->Dispatch(positions.count, 1, 1);
+	cmd_list->SetPipelineState(viscosity_pipeline.state);
+	cmd_list->Dispatch(positions.count, 1, 1);
+
+	record_resource_barrier(1, transition1, cmd_list);
 
 	// // DISPATCH UPDATE POSITIONS
 	cmd_list->SetPipelineState(update_positions_pipeline.state);
 	cmd_list->Dispatch(positions.count, 1, 1);
+
+	record_resource_barrier(1, transition1, cmd_list);
 }
 
 static inline func initialize_simulation(dx_context *ctx, u32 particle_count) -> particle_simulation {
@@ -249,6 +325,7 @@ static inline func initialize_simulation(dx_context *ctx, u32 particle_count) ->
 	sim.info_for_cshader.max_velocity 			= 1.0f;
 	sim.info_for_cshader.target_density 		= 1.5f;
 	sim.info_for_cshader.pressure_multiplier 	= 0.0f;
+	sim.info_for_cshader.collision_damping 		= 0.923f;
 	sim.info_for_cshader.bounds_size			= V2(18.0f, 10.0f);
 
 	sim.info_for_sorting.group_width = 1;
@@ -263,7 +340,7 @@ static inline func initialize_simulation(dx_context *ctx, u32 particle_count) ->
 		sim.command_allocators[i] = create_command_allocator(ctx->g_device, D3D12_COMMAND_LIST_TYPE_DIRECT);
 	}
 
-	sim.particle_size = 0.04f;
+	sim.particle_size = 0.02f;
 
 	u32 particles_row = (i32)sqrt(particle_count);
 	u32 particle_per_col  = (particle_count - 1) / particles_row + 1;
@@ -307,6 +384,7 @@ static inline func initialize_simulation(dx_context *ctx, u32 particle_count) ->
 	buffer_1d 		matrices_buffer				= buffer_1d			::create (ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, particle_count, sizeof(mat4),			(u8*)matrices, 				6);
 	buffer_1d 		spacial_indices_buffer		= buffer_1d			::create (ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, particle_count, sizeof(spatial_data), 	(u8*)spacial_indices, 		4);
 	buffer_1d 		spacial_offsets_buffer		= buffer_1d			::create (ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, particle_count, sizeof(u32), 			(u8*)spacial_offsets, 		5);
+	buffer_1d 		velocities_buffer			= buffer_1d			::create (ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, particle_count, sizeof(v2),			(u8*)velocities, 			2);
 	// NOTE(DH): Compute shader
 	{
 		sim.rndr_stage = rendering_stage::init__(&sim.arena, 9);
@@ -323,10 +401,9 @@ static inline func initialize_simulation(dx_context *ctx, u32 particle_count) ->
 		ID3DBlob* sort_shader = compile_shader(ctx->g_device, gpu_sort_filename, "Sort", "cs_5_0");
 		ID3DBlob* calculate_offsets_shader = compile_shader(ctx->g_device, gpu_sort_filename, "Calculate_Offsets", "cs_5_0");
 
-		buffer_1d 		possitions_buffer 			= buffer_1d			::create (ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, particle_count, sizeof(v2), 			(u8*)positions, 			0);
-		buffer_1d 		predicted_positions_buffer	= buffer_1d			::create (ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, particle_count, sizeof(v2), 			(u8*)predicted_positions, 	1);
-		buffer_1d 		velocities_buffer			= buffer_1d			::create (ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, particle_count, sizeof(v2),			(u8*)velocities, 			2);
-		buffer_1d 		densities_buffer 			= buffer_1d			::create (ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, particle_count, sizeof(v2), 			(u8*)densities, 			3);
+		buffer_1d 		possitions_buffer 			= buffer_1d			::create (ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, particle_count, sizeof(v2), 		(u8*)positions, 			0);
+		buffer_1d 		predicted_positions_buffer	= buffer_1d			::create (ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, particle_count, sizeof(v2), 		(u8*)predicted_positions, 	1);
+		buffer_1d 		densities_buffer 			= buffer_1d			::create (ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, particle_count, sizeof(v2), 		(u8*)densities, 			3);
 		buffer_cbuf		particle_info_buffer 		= buffer_cbuf		::create (ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, (u8*)&sim.info_for_cshader, 0);
 
 		// NOTE(DH): GPU Fluid 2D Sim {
@@ -377,6 +454,14 @@ static inline func initialize_simulation(dx_context *ctx, u32 particle_count) ->
 				.bind_shader		(external_forces_shader)
 				.create_root_sig	(binds, ctx->g_device, &sim.arena)
 				.finalize			(binds, ctx, &sim.arena, ctx->resources_and_views, ctx->g_device, &sim.simulation_desc_heap);
+
+			external_forces_pipeline.el1 = matrices_buffer;
+			external_forces_pipeline.el2 = spacial_indices_buffer;
+			external_forces_pipeline.el3 = spacial_offsets_buffer;
+			external_forces_pipeline.el4 = possitions_buffer;
+			external_forces_pipeline.el5 = predicted_positions_buffer;
+			external_forces_pipeline.el6 = velocities_buffer;
+			external_forces_pipeline.el7 = densities_buffer;
 
 			compute_pipeline spatial_hash_pipeline = 
 			compute_pipeline::init__(binds_ptr, resize, generate_binding_table, update, copy_to_render_target, copy_screen_to_render_target)
@@ -495,12 +580,15 @@ static inline func initialize_simulation(dx_context *ctx, u32 particle_count) ->
 			buffer_vtex mesh		= buffer_vtex	::	create 	(ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, (u8*)circ_data.data(), circ_data.size() * sizeof(vertex), 64);
 			buffer_idex idxs		= buffer_idex	::	create 	(ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, (u8*)circ_idc.data(), circ_idc.size() * sizeof(u32), particle_count, 65);
 			buffer_1d 	matrices 	= buffer_1d		::	create	(ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, particle_count, sizeof(mat4), (u8*)mtx_data, 0);
+			buffer_cbuf	particle_info_buffer 		= buffer_cbuf		::create (ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, (u8*)&sim.info_for_cshader, 1);
 
 			// NOTE(DH): Create bindings, also need to remember that the order MATTER!
 			auto binds = mk_bindings()
 				.bind_buffer<false, false, false, false>	(sim.arena.push_data(idxs))
 				.bind_buffer<false, false, false, false>	(sim.arena.push_data(mesh))
 				.bind_buffer<false, false, false, false>	(sim.arena.push_data(matrices_buffer))
+				.bind_buffer<false, false, false, false>	(sim.arena.push_data(velocities_buffer))
+				.bind_buffer<false, true, false, false>		(sim.arena.push_data(particle_info_buffer))
 				.bind_buffer<false, true, false, false>		(sim.arena.push_data(cbuff));
 			
 			auto binds_ar_ptr = sim.arena.push_data(binds);

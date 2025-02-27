@@ -20,8 +20,8 @@
 #include "util/types.h"
 #include "util/memory_management.h"
 #include "simulation_of_particles.h"
-#include "simulation_of_particles.cpp"
-// #include "simulation_of_particles_2D_GPU.cpp"
+// #include "simulation_of_particles.cpp"
+#include "simulation_of_particles_2D_GPU.cpp"
 #include "dx_backend.h"
 
 //NOTE(DH): ImGUI implementation import {
@@ -207,23 +207,23 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 						dx_ctx.dt_for_frame = delta_time * 0.001;
 						update(&dx_ctx);
 						
-						render_pass			graph_pass		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 0);
-						render_pass			comp_pass		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 1);
-						graphic_pipeline 	graph_pipeline 	= sim_data->arena.load(graph_pass.graph.curr);
-						compute_pipeline	compute_pipeline = sim_data->arena.load(comp_pass.compute.curr);
+						// render_pass			graph_pass		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 0);
+						// render_pass			comp_pass		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 1);
+						// graphic_pipeline 	graph_pipeline 	= sim_data->arena.load(graph_pass.graph.curr);
+						// compute_pipeline	compute_pipeline = sim_data->arena.load(comp_pass.compute.curr);
 						
-						// sim_data->particle_sim_start_frame(dx_ctx.g_frame_index, sim_data->cmd_list, sim_data->command_allocators, nullptr);
+						sim_data->particle_sim_start_frame(dx_ctx.g_frame_index, sim_data->cmd_list, sim_data->command_allocators, nullptr);
 
-						// render_pass			draw_circles_pass	= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 8);
-						// render_pass			compute_sim_pass	= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 0);
-						// render_pass			sort_sim_pass		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 6);
-						// graphic_pipeline 	draw_circles_pipe	= sim_data->arena.load(draw_circles_pass.graph.curr);
-						// compute_pipeline 	compute_sim_pipe	= sim_data->arena.load(compute_sim_pass.compute.curr);
-						// compute_pipeline 	sort_sim_pipe		= sim_data->arena.load(sort_sim_pass.compute.curr);
+						render_pass			draw_circles_pass	= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 8);
+						render_pass			compute_sim_pass	= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 0);
+						render_pass			sort_sim_pass		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 6);
+						graphic_pipeline 	draw_circles_pipe	= sim_data->arena.load(draw_circles_pass.graph.curr);
+						compute_pipeline 	compute_sim_pipe	= sim_data->arena.load(compute_sim_pass.compute.curr);
+						compute_pipeline 	sort_sim_pipe		= sim_data->arena.load(sort_sim_pass.compute.curr);
 						
-						// update_settings(sim_data, fixed_delta_time, V2(ImGui::GetMousePos().x, ImGui::GetMousePos().y), ImGui::IsMouseDown(ImGuiMouseButton_Left), ImGui::IsMouseDown(ImGuiMouseButton_Right));
+						update_settings(sim_data, fixed_delta_time, V2(ImGui::GetMousePos().x, ImGui::GetMousePos().y),  width, height, ImGui::IsMouseDown(ImGuiMouseButton_Left), ImGui::IsMouseDown(ImGuiMouseButton_Right));
 
-						f32 sim_substeps = 2;
+						f32 sim_substeps = 4;
 
 						if (lag >= fixed_delta_time) {
 							for(u8 i = 0; i < sim_substeps; ++i) {
@@ -256,6 +256,7 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 							ImGui::Text("This is some useful text.");
 							ImGui::Text("Memory used by render backend: %u of %u kb", u32(ctx->mem_arena.used / Kilobytes(1)), u32(ctx->mem_arena.size / Kilobytes(1)));
 							ImGui::Text("Time Elapsed: %f ", ctx->time_elapsed);
+							ImGui::Text("Mouse pos: %f : %f ", sim_data->info_for_cshader.pull_push_input_point.x, sim_data->info_for_cshader.pull_push_input_point.y);
 							ImGui::SliderFloat("Speed multiplier", &ctx->speed_multiplier, 0.1f, 100.0f);
 
 							ImGui::SliderFloat(VAR_NAME(gravity), &sim_data->info_for_cshader.gravity, 0.1f, 10.0f);
@@ -292,18 +293,18 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 
 						// auto compute_cmd_list = generate_compute_command_buffer(&dx_ctx, dx_ctx.viewport.Width, dx_ctx.viewport.Height);
 						// auto draw_with_cmpt = generate_compute_command_buffer(&dx_ctx, sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, sim_data->simulation_desc_heap, sim_data->rndr_stage, width, height);
-						auto draw_circles 	= generate_command_buffer(&dx_ctx, sim_data->arena, sim_data->cmd_list, sim_data->simulation_desc_heap, sim_data->rndr_stage);
+						// auto draw_circles 	= generate_command_buffer(&dx_ctx, sim_data->arena, sim_data->cmd_list, sim_data->simulation_desc_heap, sim_data->rndr_stage);
 						// auto fxaa 			= generate_compute_fxaa_CB(&dx_ctx, sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, sim_data->simulation_desc_heap, sim_data->rndr_stage, width, height);
-						// auto draw_circles 	= generate_command_buffer(&dx_ctx, sim_data->arena, sim_data->cmd_list, sim_data->command_allocators, sim_data->simulation_desc_heap, sim_data->rndr_stage);
+						auto draw_circles 	= generate_command_buffer(&dx_ctx, sim_data->arena, sim_data->cmd_list, sim_data->command_allocators, sim_data->simulation_desc_heap, sim_data->rndr_stage);
 						// auto dispatch_tasks = sim_data->cmd_list;
 						auto imgui_cmd_list = generate_imgui_command_buffer(&dx_ctx);
 						
-						graph_pipeline.update(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, graph_pipeline.bindings);
-						compute_pipeline.update(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, compute_pipeline.bindings);
+						// graph_pipeline.update(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, graph_pipeline.bindings);
+						// compute_pipeline.update(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, compute_pipeline.bindings);
 						
-						// compute_sim_pipe.update(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, compute_sim_pipe.bindings);
-						// draw_circles_pipe.update(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, draw_circles_pipe.bindings);
-						// sort_sim_pipe.update(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, sort_sim_pipe.bindings);
+						compute_sim_pipe.update(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, compute_sim_pipe.bindings);
+						draw_circles_pipe.update(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, draw_circles_pipe.bindings);
+						sort_sim_pipe.update(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, sort_sim_pipe.bindings);
 
 						float clear_color[] = { 0.0f, 0.2f, 0.4f, 1.0f };
 						// render(&dx_ctx, compute_cmd_list);
@@ -344,18 +345,18 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 
 					particle_simulation* sim_data = (particle_simulation*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
 
-					render_pass			graph_pass		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 0);
-					render_pass			comp_pass		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 1);
-					render_pass			comp_pass2		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 2);
-					graphic_pipeline 	graph_pipeline 	= sim_data->arena.load(graph_pass.graph.curr);
-					compute_pipeline	compute_pipeline = sim_data->arena.load(comp_pass.compute.curr);
-					struct compute_pipeline	compute_pipeline2 = sim_data->arena.load(comp_pass2.compute.curr);
-					graph_pipeline.resize(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, main_window_info.width, main_window_info.height, graph_pipeline.bindings);
-					compute_pipeline.resize(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, main_window_info.width, main_window_info.height, compute_pipeline.bindings);
-					compute_pipeline2.resize(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, main_window_info.width, main_window_info.height, compute_pipeline2.bindings);
-					// render_pass			graph_pass		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 8);
+					// render_pass			graph_pass		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 0);
+					// render_pass			comp_pass		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 1);
+					// render_pass			comp_pass2		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 2);
 					// graphic_pipeline 	graph_pipeline 	= sim_data->arena.load(graph_pass.graph.curr);
+					// compute_pipeline	compute_pipeline = sim_data->arena.load(comp_pass.compute.curr);
+					// struct compute_pipeline	compute_pipeline2 = sim_data->arena.load(comp_pass2.compute.curr);
 					// graph_pipeline.resize(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, main_window_info.width, main_window_info.height, graph_pipeline.bindings);
+					// compute_pipeline.resize(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, main_window_info.width, main_window_info.height, compute_pipeline.bindings);
+					// compute_pipeline2.resize(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, main_window_info.width, main_window_info.height, compute_pipeline2.bindings);
+					render_pass			graph_pass		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 8);
+					graphic_pipeline 	graph_pipeline 	= sim_data->arena.load(graph_pass.graph.curr);
+					graph_pipeline.resize(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, main_window_info.width, main_window_info.height, graph_pipeline.bindings);
 				}
 #else
 				do_redraw(hwnd);
@@ -501,12 +502,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	//NOTE(DH): Full directx initialization
 	dx_ctx = init_dx(dx_ctx.g_hwnd);
 
-	auto p_sim = initialize_simulation(&dx_ctx, 1, 0.0f, 0.935f);
+	// auto p_sim = initialize_simulation(&dx_ctx, 1, 0.0f, 0.935f);
 	// auto p_sim = initialize_simulation(&dx_ctx, 3248, 0.0f, 0.935f);
-	SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)&p_sim);
+	// SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)&p_sim);
 
-	// auto gpu_sim = initialize_simulation(&dx_ctx, 100000);
-	// SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)&gpu_sim);
+	auto gpu_sim = initialize_simulation(&dx_ctx, 100000);
+	SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)&gpu_sim);
 
 	//NOTE(DH): Initialize IMGUI {
 	IMGUI_CHECKVERSION();
