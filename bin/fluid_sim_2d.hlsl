@@ -25,7 +25,7 @@ cbuffer simulation_properties : register(b0) {
 	float4 padding[8];
 };
 
-static const uint num_threads = 128;
+static const uint num_threads = 64;
 static const int2 offsets_2d[9] = {
 	int2(-1, 1),
 	int2(0, 1),

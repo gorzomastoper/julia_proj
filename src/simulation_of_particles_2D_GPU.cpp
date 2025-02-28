@@ -213,6 +213,14 @@ inline func particle_simulation::simulation_step(dx_context *ctx, f32 delta_time
 	auto res6 = r_n_v[external_forces_pipeline.el6.res_and_view_idx];
 	auto res7 = r_n_v[external_forces_pipeline.el7.res_and_view_idx];
 
+	auto transition1 = CD3DX12_RESOURCE_BARRIER::UAV(res1.addr);
+	auto transition2 = CD3DX12_RESOURCE_BARRIER::UAV(res2.addr);
+	auto transition3 = CD3DX12_RESOURCE_BARRIER::UAV(res3.addr);
+	auto transition4 = CD3DX12_RESOURCE_BARRIER::UAV(res4.addr);
+	auto transition5 = CD3DX12_RESOURCE_BARRIER::UAV(res5.addr);
+	auto transition6 = CD3DX12_RESOURCE_BARRIER::UAV(res6.addr);
+	auto transition7 = CD3DX12_RESOURCE_BARRIER::UAV(res7.addr);
+
 	// DISPATCH SPATIAL HASH
 	// cmd_list->SetPipelineState(spatial_hash_pipeline.state);
 	// cmd_list->Dispatch(positions.count, 1, 1);
@@ -253,25 +261,52 @@ inline func particle_simulation::simulation_step(dx_context *ctx, f32 delta_time
 	
 	// update_spatial_lookup(info_for_cshader.smoothing_radius);
 
-	// record_resource_barrier(1, transition1, cmd_list);
+	record_resource_barrier(1, transition1, cmd_list);
+	// record_resource_barrier(1, transition2, cmd_list);
+	// record_resource_barrier(1, transition3, cmd_list);
+	// record_resource_barrier(1, transition4, cmd_list);
+	// record_resource_barrier(1, transition5, cmd_list);
+	// record_resource_barrier(1, transition6, cmd_list);
+	// record_resource_barrier(1, transition7, cmd_list);
 
 	// // DISPATCH PRESSURE CALC
+	// cmd_list->SetComputeRootSignature(pressure_pipeline.root_signature);
 	cmd_list->SetPipelineState(pressure_pipeline.state);
 	cmd_list->Dispatch(positions.count, 1, 1);
 
-	// record_resource_barrier(1, transition1, cmd_list);
+	record_resource_barrier(1, transition1, cmd_list);
+	// record_resource_barrier(1, transition2, cmd_list);
+	// record_resource_barrier(1, transition3, cmd_list);
+	// record_resource_barrier(1, transition4, cmd_list);
+	// record_resource_barrier(1, transition5, cmd_list);
+	// record_resource_barrier(1, transition6, cmd_list);
+	// record_resource_barrier(1, transition7, cmd_list);
 
 	// // DISPATCH VISCOSITY CALC
+	// cmd_list->SetComputeRootSignature(viscosity_pipeline.root_signature);
 	cmd_list->SetPipelineState(viscosity_pipeline.state);
 	cmd_list->Dispatch(positions.count, 1, 1);
 
-	// record_resource_barrier(1, transition1, cmd_list);
+	record_resource_barrier(1, transition1, cmd_list);
+	// record_resource_barrier(1, transition2, cmd_list);
+	// record_resource_barrier(1, transition3, cmd_list);
+	// record_resource_barrier(1, transition4, cmd_list);
+	// record_resource_barrier(1, transition5, cmd_list);
+	// record_resource_barrier(1, transition6, cmd_list);
+	// record_resource_barrier(1, transition7, cmd_list);
 
 	// // DISPATCH UPDATE POSITIONS
+	// cmd_list->SetComputeRootSignature(update_positions_pipeline.root_signature);
 	cmd_list->SetPipelineState(update_positions_pipeline.state);
 	cmd_list->Dispatch(positions.count, 1, 1);
 
-	// record_resource_barrier(1, transition1, cmd_list);
+	record_resource_barrier(1, transition1, cmd_list);
+	// record_resource_barrier(1, transition2, cmd_list);
+	// record_resource_barrier(1, transition3, cmd_list);
+	// record_resource_barrier(1, transition4, cmd_list);
+	// record_resource_barrier(1, transition5, cmd_list);
+	// record_resource_barrier(1, transition6, cmd_list);
+	// record_resource_barrier(1, transition7, cmd_list);
 }
 
 static inline func initialize_simulation(dx_context *ctx, u32 particle_count) -> particle_simulation {

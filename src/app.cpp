@@ -284,7 +284,7 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 							ImGui::PopStyleColor();
 							ImGui::End();
 
-							// imgui_draw_canvas(ctx);
+							imgui_draw_canvas(ctx);
 						};
 
 						gen_ui(&dx_ctx);
@@ -309,7 +309,7 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 						float clear_color[] = { 0.0f, 0.2f, 0.4f, 1.0f };
 						// render(&dx_ctx, compute_cmd_list);
 						// clear_render_target(dx_ctx, triangle_cmd_list, clear_color);
-						render(&dx_ctx, draw_circles);
+						// render(&dx_ctx, draw_circles);
 						// render(&dx_ctx, dispatch_tasks);
 						// render(&dx_ctx, sim_data->cmd_list);
 						render(&dx_ctx, imgui_cmd_list);
@@ -506,7 +506,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	// auto p_sim = initialize_simulation(&dx_ctx, 3248, 0.0f, 0.935f);
 	// SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)&p_sim);
 
-	auto gpu_sim = initialize_simulation(&dx_ctx, 50000);
+	auto gpu_sim = initialize_simulation(&dx_ctx, 30000);
 	SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)&gpu_sim);
 
 	//NOTE(DH): Initialize IMGUI {
