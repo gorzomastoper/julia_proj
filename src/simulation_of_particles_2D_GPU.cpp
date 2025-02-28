@@ -201,7 +201,7 @@ inline func particle_simulation::simulation_step(dx_context *ctx, f32 delta_time
 	// NOTE(DH): Init resources and get all pipelines, set initial states }
 
 	// DISPATCH EXTERNAL FORCES
-	cmd_list->Dispatch(positions.count / 128, 1, 1);
+	cmd_list->Dispatch(positions.count, 1, 1);
 	
 	auto r_n_v = arena.get_array(resources_and_views);
 
@@ -213,75 +213,65 @@ inline func particle_simulation::simulation_step(dx_context *ctx, f32 delta_time
 	auto res6 = r_n_v[external_forces_pipeline.el6.res_and_view_idx];
 	auto res7 = r_n_v[external_forces_pipeline.el7.res_and_view_idx];
 
-	auto transition1 = CD3DX12_RESOURCE_BARRIER::UAV(res1.addr);
-	auto transition2 = CD3DX12_RESOURCE_BARRIER::UAV(res2.addr);
-	auto transition3 = CD3DX12_RESOURCE_BARRIER::UAV(res3.addr);
-	auto transition4 = CD3DX12_RESOURCE_BARRIER::UAV(res4.addr);
-	auto transition5 = CD3DX12_RESOURCE_BARRIER::UAV(res5.addr);
-	auto transition6 = CD3DX12_RESOURCE_BARRIER::UAV(res6.addr);
-	auto transition7 = CD3DX12_RESOURCE_BARRIER::UAV(res7.addr);
-
-	record_resource_barrier(1, transition1, cmd_list);
-
 	// DISPATCH SPATIAL HASH
-	cmd_list->SetPipelineState(spatial_hash_pipeline.state);
-	cmd_list->Dispatch(positions.count, 1, 1);
+	// cmd_list->SetPipelineState(spatial_hash_pipeline.state);
+	// cmd_list->Dispatch(positions.count, 1, 1);
 
-	record_resource_barrier(1, transition2, cmd_list);
-	record_resource_barrier(1, transition3, cmd_list);
+	// record_resource_barrier(1, transition2, cmd_list);
+	// record_resource_barrier(1, transition3, cmd_list);
 
 	// record_resource_barrier(1, transition1, cmd_list);
 
 	// // DISPATCH SORTING AND CALC OFFSETS
-	info_for_sorting.num_entries = positions.count;
-	cmd_list->SetComputeRootSignature(gpu_sort_pipeline.root_signature);
-	cmd_list->SetPipelineState(gpu_sort_pipeline.state);
+	// info_for_sorting.num_entries = positions.count;
+	// cmd_list->SetComputeRootSignature(gpu_sort_pipeline.root_signature);
+	// cmd_list->SetPipelineState(gpu_sort_pipeline.state);
 
-	gpu_sort_pipeline.generate_binding_table(ctx, &simulation_desc_heap, &arena, cmd_list, gpu_sort_pipeline.bindings);
+	// gpu_sort_pipeline.generate_binding_table(ctx, &simulation_desc_heap, &arena, cmd_list, gpu_sort_pipeline.bindings);
 
-	u32 num_stages = log2f(next_power_of_two(positions.count));
-	u32 num_of_dispatches = (num_stages * (num_stages + 1)) / 2;
-	cmd_list->Dispatch((next_power_of_two(positions.count) / 2) * num_of_dispatches, 1, 1);
+	// u32 num_stages = log2f(next_power_of_two(positions.count));
+	// u32 num_of_dispatches = (num_stages * (num_stages + 1)) / 2;
+	// cmd_list->Dispatch((next_power_of_two(positions.count) / 2) * num_of_dispatches, 1, 1);
 
-	record_resource_barrier(1, transition2, cmd_list);
-	record_resource_barrier(1, transition3, cmd_list);
+	// record_resource_barrier(1, transition2, cmd_list);
+	// record_resource_barrier(1, transition3, cmd_list);
 
-	cmd_list->SetComputeRootSignature(gpu_offsets_pipeline.root_signature);
-	cmd_list->SetPipelineState(gpu_offsets_pipeline.state);
-	cmd_list->Dispatch(positions.count, 1, 1);
+	// cmd_list->SetComputeRootSignature(gpu_offsets_pipeline.root_signature);
+	// cmd_list->SetPipelineState(gpu_offsets_pipeline.state);
+	// cmd_list->Dispatch(positions.count, 1, 1);
 
 	
-	record_resource_barrier(1, transition2, cmd_list);
-	record_resource_barrier(1, transition3, cmd_list);
+	// record_resource_barrier(1, transition2, cmd_list);
+	// record_resource_barrier(1, transition3, cmd_list);
 	
 	// // DISPATCH DENSITY CALC
-	cmd_list->SetComputeRootSignature(density_pipeline.root_signature);
+	// cmd_list->SetComputeRootSignature(density_pipeline.root_signature);
 	cmd_list->SetPipelineState(density_pipeline.state);
 	
-	density_pipeline.generate_binding_table(ctx, &simulation_desc_heap, &arena, cmd_list, density_pipeline.bindings);
+	// density_pipeline.generate_binding_table(ctx, &simulation_desc_heap, &arena, cmd_list, density_pipeline.bindings);
 	cmd_list->Dispatch(positions.count, 1, 1);
 	
 	// update_spatial_lookup(info_for_cshader.smoothing_radius);
 
-	record_resource_barrier(1, transition1, cmd_list);
+	// record_resource_barrier(1, transition1, cmd_list);
 
 	// // DISPATCH PRESSURE CALC
 	cmd_list->SetPipelineState(pressure_pipeline.state);
 	cmd_list->Dispatch(positions.count, 1, 1);
 
-	record_resource_barrier(1, transition1, cmd_list);
+	// record_resource_barrier(1, transition1, cmd_list);
 
 	// // DISPATCH VISCOSITY CALC
 	cmd_list->SetPipelineState(viscosity_pipeline.state);
 	cmd_list->Dispatch(positions.count, 1, 1);
 
-	record_resource_barrier(1, transition1, cmd_list);
+	// record_resource_barrier(1, transition1, cmd_list);
 
 	// // DISPATCH UPDATE POSITIONS
 	cmd_list->SetPipelineState(update_positions_pipeline.state);
 	cmd_list->Dispatch(positions.count, 1, 1);
 
-	record_resource_barrier(1, transition1, cmd_list);
+	// record_resource_barrier(1, transition1, cmd_list);
 }
 
 static inline func initialize_simulation(dx_context *ctx, u32 particle_count) -> particle_simulation {
@@ -396,14 +386,13 @@ static inline func initialize_simulation(dx_context *ctx, u32 particle_count) ->
 		ID3DBlob* calculate_densities_shader = compile_shader(ctx->g_device, filename, "calculate_densities", "cs_5_0");
 		ID3DBlob* calculate_pressure_shader = compile_shader(ctx->g_device, filename, "calculate_pressure", "cs_5_0");
 		ID3DBlob* update_positions_shader = compile_shader(ctx->g_device, filename, "update_positions", "cs_5_0");
-
-		WCHAR gpu_sort_filename[] = L"bitonic_merge_sort.hlsl";
-		ID3DBlob* sort_shader = compile_shader(ctx->g_device, gpu_sort_filename, "Sort", "cs_5_0");
-		ID3DBlob* calculate_offsets_shader = compile_shader(ctx->g_device, gpu_sort_filename, "Calculate_Offsets", "cs_5_0");
+		ID3DBlob* sort_shader = compile_shader(ctx->g_device, filename, "Sort", "cs_5_0");
+		ID3DBlob* calculate_offsets_shader = compile_shader(ctx->g_device, filename, "Calculate_Offsets", "cs_5_0");
 
 		buffer_1d 		possitions_buffer 			= buffer_1d			::create (ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, particle_count, sizeof(v2), 		(u8*)positions, 			0);
 		buffer_1d 		predicted_positions_buffer	= buffer_1d			::create (ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, particle_count, sizeof(v2), 		(u8*)predicted_positions, 	1);
 		buffer_1d 		densities_buffer 			= buffer_1d			::create (ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, particle_count, sizeof(v2), 		(u8*)densities, 			3);
+		buffer_1d 		sorting_infos_buffer		= buffer_1d			::create (ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, particle_count, sizeof(sorting_info), 	(u8*)sorting_infos, 	7);
 		buffer_cbuf		particle_info_buffer 		= buffer_cbuf		::create (ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, (u8*)&sim.info_for_cshader, 0);
 
 		// NOTE(DH): GPU Fluid 2D Sim {
@@ -413,9 +402,10 @@ static inline func initialize_simulation(dx_context *ctx, u32 particle_count) ->
 				.bind_buffer<false, false, false, false>	(sim.arena.push_data(predicted_positions_buffer	))
 				.bind_buffer<false, false, false, false>	(sim.arena.push_data(velocities_buffer			))
 				.bind_buffer<false, false, false, false>	(sim.arena.push_data(densities_buffer			))
-				.bind_buffer<false, true, false, false>		(sim.arena.push_data(spacial_indices_buffer		))
-				.bind_buffer<false, true, false, false>		(sim.arena.push_data(spacial_offsets_buffer		))
+				.bind_buffer<false, false, false, false>	(sim.arena.push_data(spacial_indices_buffer		))
+				.bind_buffer<false, false, false, false>	(sim.arena.push_data(spacial_offsets_buffer		))
 				.bind_buffer<false, false, false, true>		(sim.arena.push_data(matrices_buffer			))
+				.bind_buffer<false, false, false, true>		(sim.arena.push_data(sorting_infos_buffer		))
 				.bind_buffer<false, true, false, false>		(sim.arena.push_data(particle_info_buffer		));
 
 			auto binds_ar_ptr = sim.arena.push_data(binds);
@@ -492,59 +482,6 @@ static inline func initialize_simulation(dx_context *ctx, u32 particle_count) ->
 				.bind_shader		(update_positions_shader)
 				.create_root_sig	(binds, ctx->g_device, &sim.arena)
 				.finalize			(binds, ctx, &sim.arena, ctx->resources_and_views, ctx->g_device, &sim.simulation_desc_heap);
-				
-			sim.rndr_stage = sim.rndr_stage
-			.bind_compute_pass(external_forces_pipeline, &sim.arena) // 0
-			.bind_compute_pass(density_pipeline, &sim.arena) // 1
-			.bind_compute_pass(pressure_pipeline, &sim.arena) // 2
-			.bind_compute_pass(viscosity_pipeline, &sim.arena) // 3
-			.bind_compute_pass(update_positions_pipeline, &sim.arena) //4
-			.bind_compute_pass(spatial_hash_pipeline, &sim.arena); // 5
-		}
-		// NOTE(DH): GPU Fluid 2D Sim }
-
-		// NOTE(DH): GPU Bitonic sorting {
-		{
-			buffer_1d 		sorting_infos_buffer		= buffer_1d			::create (ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, particle_count, sizeof(sorting_info), 	(u8*)sorting_infos, 		0);
-			// buffer_1d 		spacial_indices_buffer		= buffer_1d			::create (ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, particle_count, sizeof(spatial_data), 	(u8*)spacial_indices, 		0);
-			// buffer_1d 		spacial_offsets_buffer		= buffer_1d			::create (ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, particle_count, sizeof(u32), 			(u8*)spacial_offsets, 		1);
-			// buffer_cbuf		sorting_info_buffer 		= buffer_cbuf		::create (ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, (u8*)&sim.info_for_sorting, 0);
-
-			auto binds = mk_bindings()
-			.bind_buffer<false,false, false, false>		(sim.arena.push_data(spacial_indices_buffer		))
-			.bind_buffer<false,false, false, false>		(sim.arena.push_data(spacial_offsets_buffer		))
-			.bind_buffer<false,false, false, false>		(sim.arena.push_data(sorting_infos_buffer		));
-
-			auto binds_ar_ptr = sim.arena.push_data(binds);
-			auto binds_ptr = *(arena_ptr<void>*)(&binds_ar_ptr);
-
-			auto resize = [](dx_context *ctx, descriptor_heap* heap, memory_arena *arena, arena_array<resource_and_view> resources_and_views, u32 width, u32 height, arena_ptr<void> bindings) {
-				arena_ptr<decltype(binds)> bnds_ptr = *(arena_ptr<decltype(binds)>*)&bindings;
-				auto bnds = arena->get_ptr(bnds_ptr);
-				Resize<decltype(binds)::BUF_TS_U>::resize(bnds->data, ctx->g_device, *arena, heap, &resources_and_views, width, height); 
-			};
-
-			auto generate_binding_table = [](dx_context *ctx, descriptor_heap* heap, memory_arena *arena, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings) {
-				arena_ptr<decltype(binds)> bnds_ptr = *(arena_ptr<decltype(binds)>*)&bindings;
-				auto bnds = arena->get_ptr(bnds_ptr);
-				GCBC<decltype(binds)::BUF_TS_U>::bind_root_sig_table(bnds->data, 0, cmd_list, ctx->g_device, heap->addr, arena);
-			};
-
-			auto update = [](dx_context *ctx, descriptor_heap* heap, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings) {
-				arena_ptr<decltype(binds)> bnds_ptr = *(arena_ptr<decltype(binds)>*)&bindings;
-				auto bnds = arena->get_ptr(bnds_ptr);
-				Update<decltype(binds)::BUF_TS_U>::update(bnds->data, ctx, arena, resources_and_views, cmd_list);
-			};
-
-			auto copy_to_render_target = [](dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings) {
-				arena_ptr<decltype(binds)> bnds_ptr = *(arena_ptr<decltype(binds)>*)&bindings;
-				auto bnds = arena->get_ptr(bnds_ptr);
-				CTRT<decltype(binds)::BUF_TS_U>::copy_to_render_target(bnds->data, ctx, arena, resources_and_views, cmd_list);
-			};
-
-			auto copy_screen_to_render_target = [](dx_context *ctx, memory_arena *arena, arena_array<resource_and_view> resources_and_views, ID3D12GraphicsCommandList* cmd_list, arena_ptr<void> bindings) {
-				return;
-			};
 
 			compute_pipeline gpu_sort_pipeline = 
 			compute_pipeline::init__(binds_ptr, resize, generate_binding_table, update, copy_to_render_target, copy_screen_to_render_target)
@@ -557,11 +494,22 @@ static inline func initialize_simulation(dx_context *ctx, u32 particle_count) ->
 				.bind_shader		(calculate_offsets_shader)
 				.create_root_sig	(binds, ctx->g_device, &sim.arena)
 				.finalize			(binds, ctx, &sim.arena, ctx->resources_and_views, ctx->g_device, &sim.simulation_desc_heap);
-
+				
 			sim.rndr_stage = sim.rndr_stage
+			.bind_compute_pass(external_forces_pipeline, &sim.arena) // 0
+			.bind_compute_pass(density_pipeline, &sim.arena) // 1
+			.bind_compute_pass(pressure_pipeline, &sim.arena) // 2
+			.bind_compute_pass(viscosity_pipeline, &sim.arena) // 3
+			.bind_compute_pass(update_positions_pipeline, &sim.arena) //4
+			.bind_compute_pass(spatial_hash_pipeline, &sim.arena) // 5
 			.bind_compute_pass(gpu_sort_pipeline, &sim.arena) // 6
 			.bind_compute_pass(gpu_offsets_pipeline, &sim.arena); // 7
+		}
+		// NOTE(DH): GPU Fluid 2D Sim }
 
+		// NOTE(DH): GPU Bitonic sorting {
+		{
+			
 		}
 		// NOTE(DH): GPU Bitonic sorting }
 

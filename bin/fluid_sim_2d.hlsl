@@ -169,42 +169,42 @@ float2 calculate_density(float2 pos) {
 	float density = 0;
 	float near_density = 0;
 
-	// for(uint i = 0 ; i < particle_count; ++i) {
-	// 	float2 neighbour_pos = predicted_positions[i];
-	// 	float2 offset_to_neighbour = neighbour_pos - pos;
-	// 	float sqr_dst_to_neighbour = dot(offset_to_neighbour, offset_to_neighbour);
+	for(uint i = 0 ; i < particle_count; ++i) {
+		float2 neighbour_pos = predicted_positions[i];
+		float2 offset_to_neighbour = neighbour_pos - pos;
+		float sqr_dst_to_neighbour = dot(offset_to_neighbour, offset_to_neighbour);
 
-	// 	// if(sqr_dst_to_neighbour > sqr_radius) continue;
+		// if(sqr_dst_to_neighbour > sqr_radius) continue;
 
-	// 	float dst = sqrt(sqr_dst_to_neighbour);
-	// 	density += spiky_kernel_pow_2(dst, smoothing_radius);
-	// 	near_density += spiky_kernel_pow_3(dst, smoothing_radius);
-	// }
-
-	for(uint i = 0 ; i < 9; ++i) {
-		uint hash = hash_cell_2d(origin_cell + offsets_2d[i]);
-		uint key = key_from_hash(hash, particle_count);
-		uint curr_index = spacial_offsets[key];
-
-		while(curr_index < particle_count) {
-			spatial_data index_data = spacial_indices[curr_index];
-			++curr_index;
-
-			if(index_data.key != key) break;
-			if(index_data.hash != hash) continue;
-
-			uint neighbour_index = index_data.particle_index;
-			float2 neighbour_pos = predicted_positions[neighbour_index];
-			float2 offset_to_neighbour = neighbour_pos - pos;
-			float sqr_dst_to_neighbour = dot(offset_to_neighbour, offset_to_neighbour);
-
-			if(sqr_dst_to_neighbour > sqr_radius) continue;
-
-			float dst = sqrt(sqr_dst_to_neighbour);
-			density += spiky_kernel_pow_2(dst, smoothing_radius);
-			near_density += spiky_kernel_pow_3(dst, smoothing_radius);
-		}
+		float dst = sqrt(sqr_dst_to_neighbour);
+		density += spiky_kernel_pow_2(dst, smoothing_radius);
+		near_density += spiky_kernel_pow_3(dst, smoothing_radius);
 	}
+
+	// for(uint i = 0 ; i < 9; ++i) {
+	// 	uint hash = hash_cell_2d(origin_cell + offsets_2d[i]);
+	// 	uint key = key_from_hash(hash, particle_count);
+	// 	uint curr_index = spacial_offsets[key];
+
+	// 	while(curr_index < particle_count) {
+	// 		spatial_data index_data = spacial_indices[curr_index];
+	// 		++curr_index;
+
+	// 		if(index_data.key != key) break;
+	// 		if(index_data.hash != hash) continue;
+
+	// 		uint neighbour_index = index_data.particle_index;
+	// 		float2 neighbour_pos = predicted_positions[neighbour_index];
+	// 		float2 offset_to_neighbour = neighbour_pos - pos;
+	// 		float sqr_dst_to_neighbour = dot(offset_to_neighbour, offset_to_neighbour);
+
+	// 		if(sqr_dst_to_neighbour > sqr_radius) continue;
+
+	// 		float dst = sqrt(sqr_dst_to_neighbour);
+	// 		density += spiky_kernel_pow_2(dst, smoothing_radius);
+	// 		near_density += spiky_kernel_pow_3(dst, smoothing_radius);
+	// 	}
+	// }
 
 	return float2(density, near_density);
 }
@@ -291,46 +291,47 @@ void calculate_viscosity (uint3 id : SV_DispatchThreadID) {
 	float2 viscosity_force = 0;
 	float2 velocity = velocities[id.x];
 
-	// for(uint i = 0 ; i < particle_count; ++i) {
-	// 	if(i == id.x) continue;
-	// 	float2 neighbour_pos = predicted_positions[i];
-	// 	float2 offset_to_neighbour = neighbour_pos - pos;
-	// 	float sqr_dst_to_neighbour = dot(offset_to_neighbour, offset_to_neighbour);
+	for(uint i = 0 ; i < particle_count; ++i) {
+		if(i == id.x) continue;
+		float2 neighbour_pos = predicted_positions[i];
+		float2 offset_to_neighbour = neighbour_pos - pos;
+		float sqr_dst_to_neighbour = dot(offset_to_neighbour, offset_to_neighbour);
 
-	// 	// if(sqr_dst_to_neighbour > sqr_radius) continue;
+		// if(sqr_dst_to_neighbour > sqr_radius) continue;
 
-	// 	float dst = sqrt(sqr_dst_to_neighbour);
-	// 	float2 neighbour_velocity = velocities[i];
-	// 	viscosity_force += (neighbour_velocity - velocity) * smoothing_kernel_poly_6(dst, smoothing_radius);
+		float dst = sqrt(sqr_dst_to_neighbour);
+		float2 neighbour_velocity = velocities[i];
+		viscosity_force += (neighbour_velocity - velocity) * smoothing_kernel_poly_6(dst, smoothing_radius);
+	}
+
+	// for(uint i = 0 ; i < 9; ++i) {
+	// 	uint hash = hash_cell_2d(origin_cell + offsets_2d[i]);
+	// 	uint key = key_from_hash(hash, particle_count);
+	// 	uint curr_index = spacial_offsets[key];
+
+	// 	while(curr_index < particle_count) {
+	// 		spatial_data index_data = spacial_indices[curr_index];
+	// 		++curr_index;
+
+	// 		if(index_data.key != key) break;
+	// 		if(index_data.hash != hash) continue;
+
+	// 		uint neighbour_index = index_data.particle_index;
+
+	// 		if(neighbour_index == id.x) continue;
+
+	// 		float2 neighbour_pos = predicted_positions[neighbour_index];
+	// 		float2 offset_to_neighbour = neighbour_pos - pos;
+	// 		float sqr_dst_to_neighbour = dot(offset_to_neighbour, offset_to_neighbour);
+
+	// 		if(sqr_dst_to_neighbour > sqr_radius) continue;
+
+	// 		float dst = sqrt(sqr_dst_to_neighbour);
+	// 		float2 neighbour_velocity = velocities[neighbour_index];
+	// 		viscosity_force += (neighbour_velocity - velocity) * smoothing_kernel_poly_6(dst, smoothing_radius);
+	// 	}
 	// }
 
-	for(uint i = 0 ; i < 9; ++i) {
-		uint hash = hash_cell_2d(origin_cell + offsets_2d[i]);
-		uint key = key_from_hash(hash, particle_count);
-		uint curr_index = spacial_offsets[key];
-
-		while(curr_index < particle_count) {
-			spatial_data index_data = spacial_indices[curr_index];
-			++curr_index;
-
-			if(index_data.key != key) break;
-			if(index_data.hash != hash) continue;
-
-			uint neighbour_index = index_data.particle_index;
-
-			if(neighbour_index == id.x) continue;
-
-			float2 neighbour_pos = predicted_positions[neighbour_index];
-			float2 offset_to_neighbour = neighbour_pos - pos;
-			float sqr_dst_to_neighbour = dot(offset_to_neighbour, offset_to_neighbour);
-
-			if(sqr_dst_to_neighbour > sqr_radius) continue;
-
-			float dst = sqrt(sqr_dst_to_neighbour);
-			float2 neighbour_velocity = velocities[neighbour_index];
-			viscosity_force += (neighbour_velocity - velocity) * smoothing_kernel_poly_6(dst, smoothing_radius);
-		}
-	}
 	velocities[id.x] += viscosity_force * viscosity_strength * delta_time;
 }
 
@@ -376,65 +377,65 @@ void calculate_pressure (uint3 id : SV_DispatchThreadID) {
 	float2 viscosity_force = 0;
 	float2 velocity = velocities[id.x];
 
-	// for(uint i = 0 ; i < particle_count; ++i) {
-	// 	if(i == id.x) continue;
-	// 	float2 neighbour_pos = predicted_positions[i];
-	// 	float2 offset_to_neighbour = neighbour_pos - pos;
-	// 	float sqr_dst_to_neighbour = dot(offset_to_neighbour, offset_to_neighbour);
-	// 	float dst = sqrt(sqr_dst_to_neighbour);
-	// 	float2 dir_to_neighbour = dst > 0 ? offset_to_neighbour / dst : float2(0, 1);
+	for(uint i = 0 ; i < particle_count; ++i) {
+		if(i == id.x) continue;
+		float2 neighbour_pos = predicted_positions[i];
+		float2 offset_to_neighbour = neighbour_pos - pos;
+		float sqr_dst_to_neighbour = dot(offset_to_neighbour, offset_to_neighbour);
+		float dst = sqrt(sqr_dst_to_neighbour);
+		float2 dir_to_neighbour = dst > 0 ? offset_to_neighbour / dst : float2(0, 1);
 		
-	// 	float neighbour_density = densities[i].x;
-	// 	float neighbour_near_density = densities[i].y;
-	// 	float neighbour_pressure = pressure_from_density(neighbour_density);
-	// 	float neighbour_near_pressure = near_pressure_from_density(neighbour_near_density);
+		float neighbour_density = densities[i].x;
+		float neighbour_near_density = densities[i].y;
+		float neighbour_pressure = pressure_from_density(neighbour_density);
+		float neighbour_near_pressure = near_pressure_from_density(neighbour_near_density);
 
-	// 	float shared_pressure = (pressure + neighbour_pressure) * 0.5f;
-	// 	float shared_near_pressure = (near_pressure + neighbour_near_pressure) * 0.5f;
+		float shared_pressure = (pressure + neighbour_pressure) * 0.5f;
+		float shared_near_pressure = (near_pressure + neighbour_near_pressure) * 0.5f;
 
-	// 	pressure_force += dir_to_neighbour * derivative_spiky_kernel_pow_2(dst, smoothing_radius) * shared_pressure / neighbour_density;
-	// 	pressure_force += dir_to_neighbour * derivative_spiky_kernel_pow_3(dst, smoothing_radius) * shared_near_pressure / neighbour_near_density;
-	// }
-
-	for(uint i = 0 ; i < 9; ++i) {
-		uint hash = hash_cell_2d(origin_cell + offsets_2d[i]);
-		uint key = key_from_hash(hash, particle_count);
-		uint curr_index = spacial_offsets[key];
-
-		while(curr_index < particle_count) {
-			spatial_data index_data = spacial_indices[curr_index];
-			++curr_index;
-
-			if(index_data.key != key) break;
-			if(index_data.hash != hash) continue;
-
-			uint neighbour_index = index_data.particle_index;
-
-			if(neighbour_index == id.x) continue;
-
-			float2 neighbour_pos = predicted_positions[neighbour_index];
-			float2 offset_to_neighbour = neighbour_pos - pos;
-			float sqr_dst_to_neighbour = dot(offset_to_neighbour, offset_to_neighbour);
-
-			if(sqr_dst_to_neighbour > sqr_radius) continue;
-
-			// Calculate pressure force
-
-			float dst = sqrt(sqr_dst_to_neighbour);
-			float2 dir_to_neighbour = dst > 0 ? offset_to_neighbour / dst : float2(0, 1);
-			
-			float neighbour_density = densities[id.x].x;
-			float neighbour_near_density = densities[id.x].y;
-			float neighbour_pressure = pressure_from_density(neighbour_density);
-			float neighbour_near_pressure = near_pressure_from_density(neighbour_near_density);
-
-			float shared_pressure = (pressure + neighbour_pressure) * 0.5f;
-			float shared_near_pressure = (near_pressure + neighbour_near_pressure) * 0.5f;
-
-			pressure_force += dir_to_neighbour * derivative_spiky_kernel_pow_2(dst, smoothing_radius) * shared_pressure / neighbour_density;
-			pressure_force += dir_to_neighbour * derivative_spiky_kernel_pow_3(dst, smoothing_radius) * shared_near_pressure / neighbour_near_density;
-		}
+		pressure_force += dir_to_neighbour * derivative_spiky_kernel_pow_2(dst, smoothing_radius) * shared_pressure / neighbour_density;
+		pressure_force += dir_to_neighbour * derivative_spiky_kernel_pow_3(dst, smoothing_radius) * shared_near_pressure / neighbour_near_density;
 	}
+
+	// for(uint i = 0 ; i < 9; ++i) {
+	// 	uint hash = hash_cell_2d(origin_cell + offsets_2d[i]);
+	// 	uint key = key_from_hash(hash, particle_count);
+	// 	uint curr_index = spacial_offsets[key];
+
+	// 	while(curr_index < particle_count) {
+	// 		spatial_data index_data = spacial_indices[curr_index];
+	// 		++curr_index;
+
+	// 		if(index_data.key != key) break;
+	// 		if(index_data.hash != hash) continue;
+
+	// 		uint neighbour_index = index_data.particle_index;
+
+	// 		if(neighbour_index == id.x) continue;
+
+	// 		float2 neighbour_pos = predicted_positions[neighbour_index];
+	// 		float2 offset_to_neighbour = neighbour_pos - pos;
+	// 		float sqr_dst_to_neighbour = dot(offset_to_neighbour, offset_to_neighbour);
+
+	// 		if(sqr_dst_to_neighbour > sqr_radius) continue;
+
+	// 		// Calculate pressure force
+
+	// 		float dst = sqrt(sqr_dst_to_neighbour);
+	// 		float2 dir_to_neighbour = dst > 0 ? offset_to_neighbour / dst : float2(0, 1);
+			
+	// 		float neighbour_density = densities[id.x].x;
+	// 		float neighbour_near_density = densities[id.x].y;
+	// 		float neighbour_pressure = pressure_from_density(neighbour_density);
+	// 		float neighbour_near_pressure = near_pressure_from_density(neighbour_near_density);
+
+	// 		float shared_pressure = (pressure + neighbour_pressure) * 0.5f;
+	// 		float shared_near_pressure = (near_pressure + neighbour_near_pressure) * 0.5f;
+
+	// 		pressure_force += dir_to_neighbour * derivative_spiky_kernel_pow_2(dst, smoothing_radius) * shared_pressure / neighbour_density;
+	// 		pressure_force += dir_to_neighbour * derivative_spiky_kernel_pow_3(dst, smoothing_radius) * shared_near_pressure / neighbour_near_density;
+	// 	}
+	// }
 
 	float2 acceleration = pressure_force / density;
 	velocities[id.x] += acceleration * delta_time;
