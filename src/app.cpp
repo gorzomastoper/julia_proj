@@ -31,6 +31,10 @@
 #include "imgui-docking/backends/imgui_impl_win32.h"
 //NOTE(DH): ImGUI implementation import }
 
+// NOTE(DH): Bitonic sort {
+#include "bitonic_sort_cpu.cpp"
+// NOTE(DH): Bitonic sort }
+
 #if DEBUG
 #define DX12_ENABLE_DEBUG_LAYER
 #endif
@@ -195,8 +199,6 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 						dx_ctx.update_counter++;
 						u32 width = dx_ctx.viewport.Width;
 						u32 height = dx_ctx.viewport.Height;
-						particle_simulation* sim_data = (particle_simulation*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
-						dx_ctx.common_cbuff_data.mouse_pos.xy = sim_data->info_for_cshader.bounds_size;
 
 						f32 fixed_delta_time = 1.0f / 60.0f;
 						f32 current_time = GetCurrentTime();
@@ -211,83 +213,62 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 						// render_pass			comp_pass		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 1);
 						// graphic_pipeline 	graph_pipeline 	= sim_data->arena.load(graph_pass.graph.curr);
 						// compute_pipeline	compute_pipeline = sim_data->arena.load(comp_pass.compute.curr);
-						
-						sim_data->particle_sim_start_frame(dx_ctx.g_frame_index, sim_data->cmd_list, sim_data->command_allocators, nullptr);
-
-						render_pass			draw_circles_pass	= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 8);
-						render_pass			compute_sim_pass	= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 0);
-						render_pass			sort_sim_pass		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 6);
-						graphic_pipeline 	draw_circles_pipe	= sim_data->arena.load(draw_circles_pass.graph.curr);
-						compute_pipeline 	compute_sim_pipe	= sim_data->arena.load(compute_sim_pass.compute.curr);
-						compute_pipeline 	sort_sim_pipe		= sim_data->arena.load(sort_sim_pass.compute.curr);
-						
-						update_settings(sim_data, fixed_delta_time, V2(ImGui::GetMousePos().x, ImGui::GetMousePos().y),  width, height, ImGui::IsMouseDown(ImGuiMouseButton_Left), ImGui::IsMouseDown(ImGuiMouseButton_Right));
-
-						f32 sim_substeps = 3;
-
-						if (lag >= fixed_delta_time) {
-							for(u8 i = 0; i < sim_substeps; ++i) {
-								f32 substep_delta_time = fixed_delta_time / sim_substeps;
-								sim_data->simulation_step(&dx_ctx, substep_delta_time, width, height, V2(ImGui::GetMousePos().x, ImGui::GetMousePos().y), ImGui::IsMouseDown(ImGuiMouseButton_Left), ImGui::IsMouseDown(ImGuiMouseButton_Right));
-							}
-							lag -= fixed_delta_time;
-						}
 
 						start_imgui_frame();
 
-						auto gen_ui = [sim_data, width, height](dx_context *ctx) {
-							// ImGui::ShowDemoWindow();
+						// auto gen_ui = [sim_data, width, height](dx_context *ctx) {
+						// 	// ImGui::ShowDemoWindow();
 
-							bool active_tool = true;
-							ImGui::Begin("Core Menu", &ctx->g_is_menu_active, ImGuiWindowFlags_MenuBar);
-							if(ImGui::BeginMenuBar())
-							{
-								if(ImGui::BeginMenu("File"))
-								{
-									if(ImGui::MenuItem("Open", "Ctrl+O")) {}
-									if(ImGui::MenuItem("Save", "Ctrl+S")) {}
-									if(ImGui::MenuItem("Exit", "Ctrl+W")) { ctx->g_is_quitting = true;}
-									ImGui::EndMenu();
-								}
-								ImGui::EndMenuBar();
-							}
+						// 	bool active_tool = true;
+						// 	ImGui::Begin("Core Menu", &ctx->g_is_menu_active, ImGuiWindowFlags_MenuBar);
+						// 	if(ImGui::BeginMenuBar())
+						// 	{
+						// 		if(ImGui::BeginMenu("File"))
+						// 		{
+						// 			if(ImGui::MenuItem("Open", "Ctrl+O")) {}
+						// 			if(ImGui::MenuItem("Save", "Ctrl+S")) {}
+						// 			if(ImGui::MenuItem("Exit", "Ctrl+W")) { ctx->g_is_quitting = true;}
+						// 			ImGui::EndMenu();
+						// 		}
+						// 		ImGui::EndMenuBar();
+						// 	}
 					
-							ImGui::Text("Update counter: %u | Sim update counter: %u", ctx->update_counter, sim_data->sim_data_counter);
-							ImGui::Text("This is some useful text.");
-							ImGui::Text("Memory used by render backend: %u of %u kb", u32(ctx->mem_arena.used / Kilobytes(1)), u32(ctx->mem_arena.size / Kilobytes(1)));
-							ImGui::Text("Time Elapsed: %f ", ctx->time_elapsed);
-							ImGui::Text("Mouse pos: %f : %f ", sim_data->info_for_cshader.pull_push_input_point.x, sim_data->info_for_cshader.pull_push_input_point.y);
-							ImGui::SliderFloat("Speed multiplier", &ctx->speed_multiplier, 0.1f, 100.0f);
+						// 	ImGui::Text("Update counter: %u | Sim update counter: %u", ctx->update_counter, sim_data->sim_data_counter);
+						// 	ImGui::Text("This is some useful text.");
+						// 	ImGui::Text("Memory used by render backend: %u of %u kb", u32(ctx->mem_arena.used / Kilobytes(1)), u32(ctx->mem_arena.size / Kilobytes(1)));
+						// 	ImGui::Text("Time Elapsed: %f ", ctx->time_elapsed);
+						// 	ImGui::Text("Mouse pos: %f : %f ", sim_data->info_for_cshader.pull_push_input_point.x, sim_data->info_for_cshader.pull_push_input_point.y);
+						// 	ImGui::SliderFloat("Speed multiplier", &ctx->speed_multiplier, 0.1f, 100.0f);
 
-							ImGui::SliderFloat(VAR_NAME(gravity), &sim_data->info_for_cshader.gravity, 0.1f, 10.0f);
-							ImGui::SliderFloat(VAR_NAME(collision_damping), &sim_data->info_for_cshader.collision_damping, 0.01f, 2.0f);
-							ImGui::SliderFloat(VAR_NAME(pressure_multiplier), &sim_data->info_for_cshader.pressure_multiplier, 0.01f, 256.0f);
-							ImGui::SliderFloat(VAR_NAME(near_pressure_multiplier), &sim_data->info_for_cshader.near_pressure_multiplier, 0.01f, 256.0f);
-							ImGui::SliderFloat(VAR_NAME(target_density), &sim_data->info_for_cshader.target_density, 0.01f, 10.0f);
-							ImGui::SliderFloat(VAR_NAME(max_velocity), &sim_data->info_for_cshader.max_velocity, 0.01f, 10.0f);
-							ImGui::SliderFloat(VAR_NAME(bounds_size.x), &sim_data->info_for_cshader.bounds_size.x, 1.0f, (f32)width);
-							ImGui::SliderFloat(VAR_NAME(bounds_size.y), &sim_data->info_for_cshader.bounds_size.y, 1.0f, (f32)height);
-							ImGui::SliderFloat(VAR_NAME(smoothing_radius), &sim_data->info_for_cshader.smoothing_radius, 0.0f, 10.0f);
-							ImGui::SliderFloat(VAR_NAME(viscosity_strength), &sim_data->info_for_cshader.viscosity_strength, 0.0f, 10.0f);
-							ImGui::SliderFloat(VAR_NAME(pull_push_radius), &sim_data->info_for_cshader.pull_push_radius, 0.0f, 10.0f);
-							ImGui::SliderFloat(VAR_NAME(pull_push_strength), &sim_data->interaction_strength, 0.0f, 10.0f);
-							// ImGui::SliderFloat(VAR_NAME(pull_push_strength), &sim_data->info_for_cshader.pull_push_strength, 0.0f, 10.0f);
-							ImGui::ColorPicker4("Color a", (f32*)&sim_data->info_for_cshader.color_a);
-							ImGui::ColorPicker4("Color b", (f32*)&sim_data->info_for_cshader.color_b);
-							ImGui::ColorPicker4("Color c", (f32*)&sim_data->info_for_cshader.color_c);
+						// 	ImGui::SliderFloat(VAR_NAME(gravity), &sim_data->info_for_cshader.gravity, 0.1f, 10.0f);
+						// 	ImGui::SliderFloat(VAR_NAME(collision_damping), &sim_data->info_for_cshader.collision_damping, 0.01f, 2.0f);
+						// 	ImGui::SliderFloat(VAR_NAME(pressure_multiplier), &sim_data->info_for_cshader.pressure_multiplier, 0.01f, 256.0f);
+						// 	ImGui::SliderFloat(VAR_NAME(near_pressure_multiplier), &sim_data->info_for_cshader.near_pressure_multiplier, 0.01f, 256.0f);
+						// 	ImGui::SliderFloat(VAR_NAME(target_density), &sim_data->info_for_cshader.target_density, 0.01f, 10.0f);
+						// 	ImGui::SliderFloat(VAR_NAME(max_velocity), &sim_data->info_for_cshader.max_velocity, 0.01f, 10.0f);
+						// 	ImGui::SliderFloat(VAR_NAME(bounds_size.x), &sim_data->info_for_cshader.bounds_size.x, 1.0f, (f32)width);
+						// 	ImGui::SliderFloat(VAR_NAME(bounds_size.y), &sim_data->info_for_cshader.bounds_size.y, 1.0f, (f32)height);
+						// 	ImGui::SliderFloat(VAR_NAME(smoothing_radius), &sim_data->info_for_cshader.smoothing_radius, 0.0f, 10.0f);
+						// 	ImGui::SliderFloat(VAR_NAME(viscosity_strength), &sim_data->info_for_cshader.viscosity_strength, 0.0f, 10.0f);
+						// 	ImGui::SliderFloat(VAR_NAME(pull_push_radius), &sim_data->info_for_cshader.pull_push_radius, 0.0f, 10.0f);
+						// 	ImGui::SliderFloat(VAR_NAME(pull_push_strength), &sim_data->interaction_strength, 0.0f, 10.0f);
+						// 	// ImGui::SliderFloat(VAR_NAME(pull_push_strength), &sim_data->info_for_cshader.pull_push_strength, 0.0f, 10.0f);
+						// 	ImGui::ColorPicker4("Color a", (f32*)&sim_data->info_for_cshader.color_a);
+						// 	ImGui::ColorPicker4("Color b", (f32*)&sim_data->info_for_cshader.color_b);
+						// 	ImGui::ColorPicker4("Color c", (f32*)&sim_data->info_for_cshader.color_c);
 					
-							if(ImGui::Button("Recompile Shader"))
-								ctx->g_recompile_shader = true;
+						// 	if(ImGui::Button("Recompile Shader"))
+						// 		ctx->g_recompile_shader = true;
 					
-							ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 255, 255));
-							ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
-							ImGui::PopStyleColor();
-							ImGui::End();
+						// 	ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 255, 255));
+						// 	ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+						// 	ImGui::PopStyleColor();
+						// 	ImGui::End();
 
-							imgui_draw_canvas(ctx);
-						};
+						// 	imgui_draw_canvas(ctx);
+						// };
 
-						gen_ui(&dx_ctx);
+						// gen_ui(&dx_ctx);
 
 						finish_imgui_frame();
 
@@ -295,21 +276,12 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 						// auto draw_with_cmpt = generate_compute_command_buffer(&dx_ctx, sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, sim_data->simulation_desc_heap, sim_data->rndr_stage, width, height);
 						// auto draw_circles 	= generate_command_buffer(&dx_ctx, sim_data->arena, sim_data->cmd_list, sim_data->simulation_desc_heap, sim_data->rndr_stage);
 						// auto fxaa 			= generate_compute_fxaa_CB(&dx_ctx, sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, sim_data->simulation_desc_heap, sim_data->rndr_stage, width, height);
-						auto draw_circles 	= generate_command_buffer(&dx_ctx, sim_data->arena, sim_data->cmd_list, sim_data->command_allocators, sim_data->simulation_desc_heap, sim_data->rndr_stage);
 						// auto dispatch_tasks = sim_data->cmd_list;
 						auto imgui_cmd_list = generate_imgui_command_buffer(&dx_ctx);
 						
 						// graph_pipeline.update(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, graph_pipeline.bindings);
 						// compute_pipeline.update(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, compute_pipeline.bindings);
-						
-						compute_sim_pipe.update(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, compute_sim_pipe.bindings);
-						draw_circles_pipe.update(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, draw_circles_pipe.bindings);
-						sort_sim_pipe.update(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, sim_data->cmd_list, sort_sim_pipe.bindings);
 
-						float clear_color[] = { 0.0f, 0.2f, 0.4f, 1.0f };
-						// render(&dx_ctx, compute_cmd_list);
-						// clear_render_target(dx_ctx, triangle_cmd_list, clear_color);
-						// render(&dx_ctx, draw_circles);
 						// render(&dx_ctx, dispatch_tasks);
 						// render(&dx_ctx, sim_data->cmd_list);
 						render(&dx_ctx, imgui_cmd_list);
@@ -343,7 +315,7 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 					global_pause = false;
 					resize(&dx_ctx, main_window_info.width, main_window_info.height);
 
-					particle_simulation* sim_data = (particle_simulation*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+					// particle_simulation* sim_data = (particle_simulation*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
 
 					// render_pass			graph_pass		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 0);
 					// render_pass			comp_pass		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 1);
@@ -354,9 +326,6 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 					// graph_pipeline.resize(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, main_window_info.width, main_window_info.height, graph_pipeline.bindings);
 					// compute_pipeline.resize(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, main_window_info.width, main_window_info.height, compute_pipeline.bindings);
 					// compute_pipeline2.resize(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, main_window_info.width, main_window_info.height, compute_pipeline2.bindings);
-					render_pass			graph_pass		= sim_data->arena.load_by_idx<render_pass>(sim_data->rndr_stage.render_passes.ptr, 8);
-					graphic_pipeline 	graph_pipeline 	= sim_data->arena.load(graph_pass.graph.curr);
-					graph_pipeline.resize(&dx_ctx, &sim_data->simulation_desc_heap, &sim_data->arena, sim_data->resources_and_views, main_window_info.width, main_window_info.height, graph_pipeline.bindings);
 				}
 #else
 				do_redraw(hwnd);
@@ -405,7 +374,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 #if DEBUG //SHOW_CONSOLE
 	//Always enable the debug layer before doing anything DX12 related
 	//so all possible errors generated while creating DX12 objects
-	//are caught by the debug layter.
+	//are caught by the debug layer.
 	ComPtr<ID3D12Debug> debugInterface;
 	ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(&debugInterface)));
 
@@ -422,6 +391,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         freopen_s(&fpstdout, "CONOUT$", "w", stdout);
         freopen_s(&fpstderr, "CONOUT$", "w", stderr);
     #endif
+
+	u32 array[] = {1, 3, 4, 5, 6, 7, 8, 8, 8, 8, 8, 5, 2, 1, 4, 9, 2, 2, 3, 4, 6, 8, 9, 12, 1, 1, 2, 3, 4, 6, 5, 8};
+	// u32 array[] = {3, 6, 5, 7, 4, 1, 8, 2};
+	bitonic_sort(array, 0, _countof(array), 0);
 
     // ui_button("hello")(mk_empty_ui_context());
     // asdd("helll2");
@@ -502,12 +475,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	//NOTE(DH): Full directx initialization
 	dx_ctx = init_dx(dx_ctx.g_hwnd);
 
-	// auto p_sim = initialize_simulation(&dx_ctx, 1, 0.0f, 0.935f);
-	// auto p_sim = initialize_simulation(&dx_ctx, 3248, 0.0f, 0.935f);
-	// SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)&p_sim);
-
-	auto gpu_sim = initialize_simulation(&dx_ctx, 30000);
-	SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)&gpu_sim);
+	// SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)&gpu_sim);
 
 	//NOTE(DH): Initialize IMGUI {
 	IMGUI_CHECKVERSION();
