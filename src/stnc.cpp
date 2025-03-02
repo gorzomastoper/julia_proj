@@ -59,6 +59,8 @@ struct node {
 
     tag_t tag;
 
+    f32 pos[2];
+
     union data_t {
         struct node_def_t      {def_idx_t node_def_idx;}                                            node_def;
         struct i32_lit_t       {u32 val;}                                                           i32_lit;
