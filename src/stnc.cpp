@@ -28,7 +28,7 @@ struct type {
     union data_t {
         struct type_def_t  {def_idx_t typed_def_idx;} type_def;
         struct array_t     {int size;}                array;
-        struct structure_t {u8 field_count}           structure;
+        struct structure_t {u8 field_count;}           structure;
         struct function_t  {u8 in_pins_count;}        function;
     } data;
 };
