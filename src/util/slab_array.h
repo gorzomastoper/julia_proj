@@ -1,6 +1,5 @@
 #include "types.h"
-#include <cstdlib>
-#include <cstring>
+#include <algorithm>
 
 template <typename A, typename B>
 using fn1 = B(*)(A);
@@ -9,7 +8,7 @@ template <typename A>
 struct slab_array {
     u32 capacity;
     u32 first_free_slot_idx;
-    u32 max_used_slot_idx;
+    u32 max_used_slot_idx; // TODO
     void* data;
 
     struct ptr {u32 idx;};
@@ -24,7 +23,7 @@ struct slab_array {
 
     static func create(u32 slot_count) -> slab_array<A> {
         // static_assert(sizeof(A) >= sizeof(u32));
-        return slab_array<A> {.free_slot_count = slot_count, .first_free_slot_idx = 0, .data = calloc(sizeof(slot_t), slot_count)};
+        return slab_array<A> {.free_slot_count = slot_count, .first_free_slot_idx = 0, .max_used_slot_idx = 0, .data = calloc(sizeof(slot_t), slot_count)};
     }
 
     func dealloc() -> void {
@@ -52,6 +51,7 @@ struct slab_array {
                 this->first_free_slot_idx = data[this->first_free_slot_idx].data.next_free_slot_idx;
             }
             data[slot_idx] = slot_t {.data = {.val = val}, .in_use = true};
+            this->max_used_slot_idx = std::max(this->max_used_slot_idx, slot_idx);
             return ptr {slot_idx};
         }
     }
