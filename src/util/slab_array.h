@@ -23,7 +23,7 @@ struct slab_array {
 
     static func create(u32 slot_count) -> slab_array<A> {
         // static_assert(sizeof(A) >= sizeof(u32));
-        return slab_array<A> {.free_slot_count = slot_count, .first_free_slot_idx = 0, .max_used_slot_idx = 0, .data = calloc(sizeof(slot_t), slot_count)};
+        return slab_array<A> {.capacity = slot_count, .first_free_slot_idx = 0, .max_used_slot_idx = 0, .data = calloc(sizeof(slot_t), slot_count)};
     }
 
     func dealloc() -> void {
