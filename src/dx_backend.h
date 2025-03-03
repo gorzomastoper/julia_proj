@@ -519,8 +519,6 @@ func start_imgui_frame				() -> void;
 
 func finish_imgui_frame				() -> void;
 
-func imgui_draw_canvas				(dx_context *ctx) -> void;
-
 func move_to_next_frame				(dx_context *context) -> void;
 
 func flush							(dx_context &context) -> void;

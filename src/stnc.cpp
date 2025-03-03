@@ -1,3 +1,4 @@
+#pragma once
 #include "util/types.h"
 #include "util/slab_array.h"
 #include <cassert>
@@ -71,7 +72,7 @@ struct node {
     } data;
 
 
-    #define mk_node(_tag, _vals) (node {.tag = _tag, .data = {._tag = node::data_t::_tag##_t _vals}})
+    #define mk_node(_tag, _vals) (node {.tag = node::_tag, .data = {._tag = node::data_t::_tag##_t _vals}})
 };
 
 struct definition {
