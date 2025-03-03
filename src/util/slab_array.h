@@ -84,4 +84,9 @@ struct slab_array {
         }
         return;
     }
+
+    func get(ptr i) -> A {
+        let data = (slot_t*)this->data;
+        return data[i.idx].data.val;
+    }
 };
