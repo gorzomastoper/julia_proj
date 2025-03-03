@@ -99,7 +99,23 @@ struct slab_array {
         return acc;
     }
 
+    template <typename ACC>
+    func fold_ptr(ACC acc, fn2<A*, ACC, ACC> f) -> ACC {
+        for (var i = 0; i < this->max_used_slot_idx; i++) {
+            let el = ((slot_t*)this->data)[i];
+            if (el.in_use) {
+                acc = f(&el.data.val, acc);
+            }
+        }
+        return acc;
+    }
+
     func get(ptr i) -> A {
+        let data = (slot_t*)this->data;
+        return data[i.idx].data.val;
+    }
+
+    func get_ptr(ptr i) -> A* {
         let data = (slot_t*)this->data;
         return data[i.idx].data.val;
     }
