@@ -671,6 +671,12 @@ normalize(v2 A)
 	return(Result);
 }
 
+inline f32
+Distance(v2 A, v2 B) {
+	f32 result = sqrtf(pow((B.x - A.x), 2) + pow((B.y - A.y), 2));
+	return result;
+}
+
 //
 // NOTE(Denis): v3 operations
 //
