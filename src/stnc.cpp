@@ -26,10 +26,13 @@ struct type {
 
     tag_t tag;
 
+    ::f32 pos[2];
+
     union data_t {
+        struct f32_t       {}                         f32;
         struct type_def_t  {def_idx_t typed_def_idx;} type_def;
         struct array_t     {int size;}                array;
-        struct structure_t {u8 field_count;}           structure;
+        struct structure_t {u8 field_count;}          structure;
         struct function_t  {u8 in_pins_count;}        function;
     } data;
 };
@@ -56,6 +59,8 @@ struct node {
 
         structure_lit,
         array_lit,
+
+        f32_add,
     };
 
     tag_t tag;
@@ -69,6 +74,7 @@ struct node {
         struct structure_lit_t {def_idx_t ty;}                                                      structure_lit;
         struct array_lit_t     {def_idx_t ty;}                                                      array_lit;
         struct lambda_t        {def_idx_t ty; slab_array<def_idx_t> nodes; slab_array<link> links;} lambda;
+        struct f32_add_t       {}                                                                   f32_add;
     } data;
 
 
@@ -84,8 +90,8 @@ struct definition {
     tag_t tag;
 
     union data_t {
-        struct type_t {slab_array<def_idx_t> nodes; slab_array<link> links;}               type;
-        struct node_t {def_idx_t ty; slab_array<def_idx_t> nodes; slab_array<link> links;} node;
+        struct type_t {slab_array<::type> nodes; slab_array<link> links;}               type;
+        struct node_t {def_idx_t ty; slab_array<::node> nodes; slab_array<link> links;} node;
     } data;
 };
 
@@ -93,3 +99,33 @@ struct module {
     char                   name[256];
     slab_array<definition> defs;
 };
+
+
+func example1() -> module {
+    let defs = slab_array<definition>::create(128);
+
+    let fn_ty1_els = slab_array<type>::create(4);
+    let fn_ty1_links = slab_array<link>::create(4);
+    let fn_ty1_idx = fn_ty1_els.push(type {.tag = type::function, .data = {.function = {2}}});
+    let a_idx = fn_ty1_els.push(type {.tag = type::f32, .data = {}});
+    let b_idx = fn_ty1_els.push(type {.tag = type::f32, .data = {}});
+    let c_idx = fn_ty1_els.push(type {.tag = type::f32, .data = {}});
+    fn_ty1_links.push(link {0, (u16)a_idx.idx, 0, (u16)fn_ty1_idx.idx, 0});
+    fn_ty1_links.push(link {0, (u16)b_idx.idx, 0, (u16)fn_ty1_idx.idx, 1});
+    fn_ty1_links.push(link {0, (u16)c_idx.idx, 0, (u16)fn_ty1_idx.idx, 2});
+    let my_node1_ty = definition {.tag = definition::type, .data = {.type = {.nodes = fn_ty1_els, .links = fn_ty1_links}}};
+    let my_fn1_ty_idx = defs.push(my_node1_ty);
+
+    let my_node1_els = slab_array<node>::create(4);
+    let my_node1_links = slab_array<link>::create(4);
+    let my_node1_idx = my_node1_els.push(node {.tag = node::f32_add, .data = {}});
+    my_node1_links.push(link {1, 0, 0, (u16)my_node1_idx.idx, 0});
+    my_node1_links.push(link {1, 1, 0, (u16)my_node1_idx.idx, 1});
+    my_node1_links.push(link {0, (u16)my_node1_idx.idx, 1, 0, 0});
+    let my_node1 = definition {.tag = definition::node, .data = {.node = {.ty = my_fn1_ty_idx, .nodes = my_node1_els, .links = my_node1_links}}};
+    let my_node1_def_idx = defs.push(my_node1);
+
+    let my_mod = module {"my module1", defs};
+
+    return my_mod;
+}
