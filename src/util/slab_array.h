@@ -74,4 +74,14 @@ struct slab_array {
         }
         return result;
     }
+
+    func iter(fn1<A, void>) -> void {
+        for (var i = 0; i < this->max_used_slot_idx; i++) {
+            let el = ((slot_t*)this->data)[i];
+            if (el.in_use) {
+                f(el.data.val);
+            }
+        }
+        return;
+    }
 };
