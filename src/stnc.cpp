@@ -25,6 +25,8 @@ struct type {
 
     tag_t tag;
 
+    ::f32 pos[2];
+
     union data_t {
         struct f32_t       {}                         f32;
         struct type_def_t  {def_idx_t typed_def_idx;} type_def;
