@@ -69,7 +69,7 @@ struct slab_array {
     template <typename B>
     func map(fn1<A, B> f) -> slab_array<B> {
         let result = slab_array<B>::create(this->capacity);
-        for (var i = 0; i < this->max_used_slot_idx; i++) {
+        for (var i = 0; i <= this->max_used_slot_idx; i++) {
             let el = ((slot_t*)this->data)[i];
             if (el.in_use) {
                 result.push(f(el.data.val));
@@ -80,10 +80,10 @@ struct slab_array {
 
     template <typename F>
     func iter(F f) -> void {
-        for (var i = 0; i < this->max_used_slot_idx; i++) {
-            let el = ((slot_t*)this->data)[i];
-            if (el.in_use) {
-                f(el.data.val);
+        for (var i = 0; i <= this->max_used_slot_idx; i++) {
+            let el = ((slot_t*)this->data + i);
+            if (el->in_use) {
+                f(&el->data.val);
             }
         }
         return;
@@ -91,7 +91,7 @@ struct slab_array {
 
     template <typename ACC>
     func fold(ACC acc, fn2<A, ACC, ACC> f) -> ACC {
-        for (var i = 0; i < this->max_used_slot_idx; i++) {
+        for (var i = 0; i <= this->max_used_slot_idx; i++) {
             let el = ((slot_t*)this->data)[i];
             if (el.in_use) {
                 acc = f(el.data.val, acc);
@@ -102,7 +102,7 @@ struct slab_array {
 
     template <typename ACC>
     func fold_ptr(ACC acc, fn2<A*, ACC, ACC> f) -> ACC {
-        for (var i = 0; i < this->max_used_slot_idx; i++) {
+        for (var i = 0; i <= this->max_used_slot_idx; i++) {
             let el = ((slot_t*)this->data)[i];
             if (el.in_use) {
                 acc = f(&el.data.val, acc);
@@ -113,7 +113,7 @@ struct slab_array {
 
     template <typename ACC>
     func iter_with_acc(ACC acc, fn2<A*, ACC, void> f) -> void {
-        for (var i = 0; i < this->max_used_slot_idx; i++) {
+        for (var i = 0; i <= this->max_used_slot_idx; i++) {
             let el = ((slot_t*)this->data)[i];
             if (el.in_use) {
                 f(&el.data.val, acc);

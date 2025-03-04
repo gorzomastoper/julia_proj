@@ -266,11 +266,13 @@ func imgui_draw_canvas(dx_context *ctx, stnc_rendering *stnc_rndr)
 		
 		//NOTE(DH) END
 
-		let render_node = [](dx_context* ctx, stnc_rendering *stnc_rndr, ImDrawList *draw_list, ImVec2 canvas_p0, ImVec2 canvas_p1, ImGuiIO &io, v2 *child_moving) {
+		let render_node = [](dx_context* ctx, stnc_rendering *stnc_rndr, ImVec2 canvas_p0, ImVec2 canvas_p1, ImGuiIO io, v2 *child_moving) {
+			// printf("Pos: %f, %f\n", child_moving->x, child_moving->y);
 			ImVec2 node_size = ImVec2(300, 200);
 			f32 circle_radius = 10.0f;
 			stnc_rndr->start_point = V2(node_size.x - 20, node_size.y / 3);
 
+			char tmp[128];
 			ImGui::SetNextWindowPos(canvas_p0 + im_vec2(*child_moving) + scrolling);
 			ImGui::PushClipRect(canvas_p0 + ImVec2(1,1), canvas_p1 - ImVec2(1,1), false);
 			ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(255, 0, 0, 255));
@@ -279,19 +281,30 @@ func imgui_draw_canvas(dx_context *ctx, stnc_rendering *stnc_rndr)
 			ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 0.0f);
 			ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 18.0f);
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-			ImGui::InvisibleButton("Node", node_size, ImGuiButtonFlags_MouseButtonLeft);
-			ImGui::BeginChild("canvas", node_size, ImGuiChildFlags_None, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_MenuBar);
+			snprintf(tmp, sizeof(tmp), "BTN_%u", (u32)child_moving);
+			ImGui::InvisibleButton(tmp, node_size, ImGuiButtonFlags_MouseButtonLeft);
+			snprintf(tmp, sizeof(tmp), "CNV_%u", (u32)child_moving);
+			ImGui::BeginChild(tmp, node_size, ImGuiChildFlags_None, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_MenuBar);
+			ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
 			if (ImGui::IsItemActive())
 			{
 				child_moving->x += io.MouseDelta.x;
 				child_moving->y += io.MouseDelta.y;
 			}
-			
-			ImGui::Button("Click me just like that!");
-			ImGui::Text("Generic text");
+
+			if (ImGui::IsItemActivated())
+			{
+				printf("SOL\n");
+			}
 
 			ImGui::SetCursorPos(im_vec2(stnc_rndr->start_point) - ImVec2(circle_radius, circle_radius));
-			ImGui::InvisibleButton("Out_Pin", ImVec2(circle_radius * 2, circle_radius * 2), ImGuiButtonFlags_MouseButtonLeft);
+			snprintf(tmp, sizeof(tmp), "Out_Pin_%u", (u32)child_moving);
+			ImGui::InvisibleButton(tmp, ImVec2(circle_radius * 2, circle_radius * 2), ImGuiButtonFlags_MouseButtonLeft);
+			if (ImGui::IsItemHovered()) {
+				
+			}
+
 			if(ImGui::IsItemActive()) {
 				stnc_rndr->active_conntection = true;
 			} else {
@@ -299,11 +312,11 @@ func imgui_draw_canvas(dx_context *ctx, stnc_rendering *stnc_rndr)
 				// TODO(DH): Create search for spawning new node from list
 			}
 			
+			v2 node_position = V2(canvas_p0.x + scrolling.x + child_moving->x, canvas_p0.y + scrolling.y + child_moving->y);
+			draw_list->AddCircleFilled(im_vec2(node_position + stnc_rndr->start_point), circle_radius, IM_COL32(128, 128, 128, 255), 32);
+			
 			ImGui::EndChild();
 			
-			v2 node_position = V2(canvas_p0.x + scrolling.x + child_moving->x, canvas_p0.y + scrolling.y + child_moving->y);
-
-			draw_list->AddCircleFilled(im_vec2(node_position + stnc_rndr->start_point), circle_radius, IM_COL32(128, 128, 128, 255), 32);
 			if(stnc_rndr->active_conntection) {
 				bezier loperamid = create_bezier(&ctx->mem_arena, node_position + stnc_rndr->start_point, V2(ImGui::GetMousePos().x, ImGui::GetMousePos().y));
 				imgui_draw_bezier(ctx->mem_arena, loperamid);
@@ -318,34 +331,11 @@ func imgui_draw_canvas(dx_context *ctx, stnc_rendering *stnc_rndr)
 			ImGui::PopClipRect();
 		};
 
-		let drop = [canvas_p0](){
-			printf("LOL: %f", canvas_p0.x);
-		};
-
 		let mod = ctx->mem_arena.get_ptr(stnc_rndr->mod);
-		let process_node = [](node &nd) -> void {
-			// render_node(ctx, stnc_rndr, draw_list, canvas_p0, canvas_p1, io, (v2*)nd.pos);
-		};
-		// let process_nodes = [&process_node](definition *def, AAC acc) {
-		// 	if(def.tag == definition::node) {
-		// 		def.data.node.nodes.iter_with_acc(ACC acc, fn2<node *, ACC, void> f);
-		// 	}
-		// };
-
-		struct some_data {
-			dx_context* ctx;
-			stnc_rendering *stnc_rndr; 
-			ImDrawList *draw_list; 
-			ImVec2 canvas_p0; 
-			ImVec2 canvas_p1; 
-			ImGuiIO &io;
-		};
-		some_data s_data = { ctx, stnc_rndr, draw_list, canvas_p0, canvas_p1, io };
-
-		mod->defs.iter_with_acc<some_data>(s_data, [](definition *def, some_data so_data) -> void {
+		mod->defs.iter([=](definition *def) -> void {
 			if(def->tag == definition::node) {
-				def->data.node.nodes.iter_with_acc<some_data>(so_data, [](node *nd, some_data data) -> void {
-
+				def->data.node.nodes.iter([=](node *nd) -> void {
+					render_node(ctx, stnc_rndr, canvas_p0, canvas_p1, io, (v2*)nd->pos);
 				});
 			}
 		});

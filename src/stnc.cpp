@@ -125,6 +125,15 @@ func example1() -> module {
     let my_node1 = definition {.tag = definition::node, .data = {.node = {.ty = my_fn1_ty_idx, .nodes = my_node1_els, .links = my_node1_links}}};
     let my_node1_def_idx = defs.push(my_node1);
 
+	let my_node2_els = slab_array<node>::create(4);
+    let my_node2_links = slab_array<link>::create(4);
+    let my_node2_idx = my_node2_els.push(node {.tag = node::f32_add, .data = {}});
+    my_node2_links.push(link {1, 0, 0, (u16)my_node2_idx.idx, 0});
+    my_node2_links.push(link {1, 1, 0, (u16)my_node2_idx.idx, 1});
+    my_node2_links.push(link {0, (u16)my_node2_idx.idx, 1, 0, 0});
+    let my_node2 = definition {.tag = definition::node, .data = {.node = {.ty = my_fn1_ty_idx, .nodes = my_node2_els, .links = my_node2_links}}};
+    let my_node2_def_idx = defs.push(my_node2);
+
     let my_mod = module {"my module1", defs};
 
     return my_mod;
