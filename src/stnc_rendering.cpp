@@ -268,7 +268,7 @@ func imgui_draw_canvas(dx_context *ctx, stnc_rendering *stnc_rndr)
 
 		let render_node = [](dx_context* ctx, stnc_rendering *stnc_rndr, ImVec2 canvas_p0, ImVec2 canvas_p1, ImGuiIO io, v2 *child_moving) {
 			// printf("Pos: %f, %f\n", child_moving->x, child_moving->y);
-			ImVec2 node_size = ImVec2(300, 200);
+			ImVec2 node_size = ImVec2(300, 600);
 			f32 circle_radius = 10.0f;
 			stnc_rndr->start_point = V2(node_size.x - 20, node_size.y / 3);
 
@@ -293,17 +293,10 @@ func imgui_draw_canvas(dx_context *ctx, stnc_rendering *stnc_rndr)
 				child_moving->y += io.MouseDelta.y;
 			}
 
-			if (ImGui::IsItemActivated())
-			{
-				printf("SOL\n");
-			}
-
-			ImGui::SetCursorPos(im_vec2(stnc_rndr->start_point) - ImVec2(circle_radius, circle_radius));
+			ImVec2 output_pin_pos = im_vec2(stnc_rndr->start_point) - ImVec2(circle_radius, circle_radius);
+			ImGui::SetCursorPos(output_pin_pos);
 			snprintf(tmp, sizeof(tmp), "Out_Pin_%u", (u32)child_moving);
 			ImGui::InvisibleButton(tmp, ImVec2(circle_radius * 2, circle_radius * 2), ImGuiButtonFlags_MouseButtonLeft);
-			if (ImGui::IsItemHovered()) {
-				
-			}
 
 			if(ImGui::IsItemActive()) {
 				stnc_rndr->active_conntection = true;
@@ -313,7 +306,13 @@ func imgui_draw_canvas(dx_context *ctx, stnc_rendering *stnc_rndr)
 			}
 			
 			v2 node_position = V2(canvas_p0.x + scrolling.x + child_moving->x, canvas_p0.y + scrolling.y + child_moving->y);
-			draw_list->AddCircleFilled(im_vec2(node_position + stnc_rndr->start_point), circle_radius, IM_COL32(128, 128, 128, 255), 32);
+			ImVec2 out_pin_pos_to_node = im_vec2(node_position + stnc_rndr->start_point);
+			draw_list->AddCircleFilled(out_pin_pos_to_node, circle_radius, IM_COL32(128, 128, 128, 255), 32);
+
+			//draw_list->AddRectFilled(out_pin_pos_to_node - ImVec2(circle_radius, circle_radius), out_pin_pos_to_node + ImVec2(circle_radius, circle_radius), IM_COL32(255, 255, 0, 255));
+			if(ImGui::IsMouseReleased(ImGuiMouseButton_Left) && ImGui::IsMouseHoveringRect(out_pin_pos_to_node - ImVec2(circle_radius, circle_radius), out_pin_pos_to_node + ImVec2(circle_radius, circle_radius))) {
+				printf("\nRELEASED!");
+			}
 			
 			ImGui::EndChild();
 			
