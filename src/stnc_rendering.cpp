@@ -266,13 +266,14 @@ func imgui_draw_canvas(dx_context *ctx, stnc_rendering *stnc_rndr)
 		
 		//NOTE(DH) END
 
-		let render_node = [](dx_context* ctx, stnc_rendering *stnc_rndr, ImVec2 canvas_p0, ImVec2 canvas_p1, ImGuiIO io, v2 *child_moving) {
+		let render_node = [](dx_context* ctx, stnc_rendering *stnc_rndr, ImVec2 canvas_p0, ImVec2 canvas_p1, ImGuiIO io, v2 *child_moving) -> bool {
+			bool is_node_need_to_be_on_top = false;
 			// printf("Pos: %f, %f\n", child_moving->x, child_moving->y);
 			ImVec2 node_size = ImVec2(300, 600);
 			f32 circle_radius = 10.0f;
 			stnc_rndr->start_point = V2(node_size.x - 20, node_size.y / 3);
 
-			char tmp[128];
+			char tmp[64];
 			ImGui::SetNextWindowPos(canvas_p0 + im_vec2(*child_moving) + scrolling);
 			ImGui::PushClipRect(canvas_p0 + ImVec2(1,1), canvas_p1 - ImVec2(1,1), false);
 			ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(255, 0, 0, 255));
@@ -281,9 +282,9 @@ func imgui_draw_canvas(dx_context *ctx, stnc_rendering *stnc_rndr)
 			ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 0.0f);
 			ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 18.0f);
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-			snprintf(tmp, sizeof(tmp), "BTN_%u", (u32)child_moving);
+			snprintf(tmp, sizeof(tmp), "BTN_%p", child_moving);
 			ImGui::InvisibleButton(tmp, node_size, ImGuiButtonFlags_MouseButtonLeft);
-			snprintf(tmp, sizeof(tmp), "CNV_%u", (u32)child_moving);
+			snprintf(tmp, sizeof(tmp), "CNV_%p", child_moving);
 			ImGui::BeginChild(tmp, node_size, ImGuiChildFlags_None, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_MenuBar);
 			ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
@@ -291,11 +292,13 @@ func imgui_draw_canvas(dx_context *ctx, stnc_rendering *stnc_rndr)
 			{
 				child_moving->x += io.MouseDelta.x;
 				child_moving->y += io.MouseDelta.y;
+
+				is_node_need_to_be_on_top = true;
 			}
 
 			ImVec2 output_pin_pos = im_vec2(stnc_rndr->start_point) - ImVec2(circle_radius, circle_radius);
 			ImGui::SetCursorPos(output_pin_pos);
-			snprintf(tmp, sizeof(tmp), "Out_Pin_%u", (u32)child_moving);
+			snprintf(tmp, sizeof(tmp), "Out_Pin_%p", child_moving);
 			ImGui::InvisibleButton(tmp, ImVec2(circle_radius * 2, circle_radius * 2), ImGuiButtonFlags_MouseButtonLeft);
 
 			if(ImGui::IsItemActive()) {
@@ -307,11 +310,11 @@ func imgui_draw_canvas(dx_context *ctx, stnc_rendering *stnc_rndr)
 			
 			v2 node_position = V2(canvas_p0.x + scrolling.x + child_moving->x, canvas_p0.y + scrolling.y + child_moving->y);
 			ImVec2 out_pin_pos_to_node = im_vec2(node_position + stnc_rndr->start_point);
-			draw_list->AddCircleFilled(out_pin_pos_to_node, circle_radius, IM_COL32(128, 128, 128, 255), 32);
+			// draw_list->AddCircleFilled(out_pin_pos_to_node, circle_radius, IM_COL32(128, 128, 128, 255), 32);
 
-			//draw_list->AddRectFilled(out_pin_pos_to_node - ImVec2(circle_radius, circle_radius), out_pin_pos_to_node + ImVec2(circle_radius, circle_radius), IM_COL32(255, 255, 0, 255));
+			draw_list->AddRectFilled(out_pin_pos_to_node - ImVec2(circle_radius, circle_radius), out_pin_pos_to_node + ImVec2(circle_radius, circle_radius), IM_COL32(255, 255, 0, 255));
 			if(ImGui::IsMouseReleased(ImGuiMouseButton_Left) && ImGui::IsMouseHoveringRect(out_pin_pos_to_node - ImVec2(circle_radius, circle_radius), out_pin_pos_to_node + ImVec2(circle_radius, circle_radius))) {
-				printf("\nRELEASED!");
+				ImGui::Text("Global warming!");
 			}
 			
 			ImGui::EndChild();
@@ -328,13 +331,30 @@ func imgui_draw_canvas(dx_context *ctx, stnc_rendering *stnc_rndr)
 			ImGui::PopStyleVar();
 			ImGui::PopStyleVar();
 			ImGui::PopClipRect();
+
+			return is_node_need_to_be_on_top;
 		};
 
+		bool swap = false;
 		let mod = ctx->mem_arena.get_ptr(stnc_rndr->mod);
-		mod->defs.iter([=](definition *def) -> void {
+		mod->defs.iter_in_order([=, &swap](definition *def, u32 def_idx) -> void {
 			if(def->tag == definition::node) {
-				def->data.node.nodes.iter([=](node *nd) -> void {
-					render_node(ctx, stnc_rndr, canvas_p0, canvas_p1, io, (v2*)nd->pos);
+
+				// NOTE(DH): Swap elements only on next iteration for proper drawing!
+				if(swap) 
+					mod->defs.swap_to_last(def_idx-1);
+
+				swap = false;
+				def->data.node.nodes.iter([=, &swap](node *nd) -> void {
+					if(render_node(ctx, stnc_rndr, canvas_p0, canvas_p1, io, (v2*)nd->pos) == true) {
+						swap = true;
+						//printf("pressed idx: %u\n", def_idx);
+					}
+					//printf("idx: %u\n", def_idx);
+				});
+
+				def->data.node.links.iter([](link *lnk) -> void {
+					//lnk->
 				});
 			}
 		});

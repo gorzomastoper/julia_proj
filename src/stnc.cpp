@@ -43,9 +43,9 @@ struct pin_desc {
 };
 
 struct link {
-    u16 src_node_is_bound : 1;
+    u16 src_node_is_bound : 1; // NOTE(DH): Input is argument
     u16 src_node_idx      : 15;
-    u16 dst_node_is_out   : 1;
+    u16 dst_node_is_out   : 1; // NOTE(DH): 1 == return
     u16 dst_node_idx      : 15; // 0, if dst_node_is_out == 1
     u8 dst_pin_idx;             // 0, if dst_node_is_out == 1
 };
@@ -118,21 +118,30 @@ func example1() -> module {
 
     let my_node1_els = slab_array<node>::create(4);
     let my_node1_links = slab_array<link>::create(4);
-    let my_node1_idx = my_node1_els.push(node {.tag = node::f32_add, .data = {}});
-    my_node1_links.push(link {1, 0, 0, (u16)my_node1_idx.idx, 0});
-    my_node1_links.push(link {1, 1, 0, (u16)my_node1_idx.idx, 1});
-    my_node1_links.push(link {0, (u16)my_node1_idx.idx, 1, 0, 0});
+    let my_node1_idx = my_node1_els.push(node {.tag = node::f32_add, .data = {}}).idx;
+    my_node1_links.push(link {1, 0, 0, (u16)my_node1_idx, 0});
+    my_node1_links.push(link {1, 1, 0, (u16)my_node1_idx, 1});
+    my_node1_links.push(link {0, (u16)my_node1_idx, 1, 0, 0});
     let my_node1 = definition {.tag = definition::node, .data = {.node = {.ty = my_fn1_ty_idx, .nodes = my_node1_els, .links = my_node1_links}}};
     let my_node1_def_idx = defs.push(my_node1);
 
 	let my_node2_els = slab_array<node>::create(4);
     let my_node2_links = slab_array<link>::create(4);
-    let my_node2_idx = my_node2_els.push(node {.tag = node::f32_add, .data = {}});
-    my_node2_links.push(link {1, 0, 0, (u16)my_node2_idx.idx, 0});
-    my_node2_links.push(link {1, 1, 0, (u16)my_node2_idx.idx, 1});
-    my_node2_links.push(link {0, (u16)my_node2_idx.idx, 1, 0, 0});
+    let my_node2_idx = my_node2_els.push(node {.tag = node::f32_add, .data = {}}).idx;
+    my_node2_links.push(link {1, 0, 0, (u16)my_node2_idx, 0});
+    my_node2_links.push(link {1, 1, 0, (u16)my_node2_idx, 1});
+    my_node2_links.push(link {0, (u16)my_node2_idx, 1, 0, 0});
     let my_node2 = definition {.tag = definition::node, .data = {.node = {.ty = my_fn1_ty_idx, .nodes = my_node2_els, .links = my_node2_links}}};
     let my_node2_def_idx = defs.push(my_node2);
+
+	let my_node3_els = slab_array<node>::create(4);
+    let my_node3_links = slab_array<link>::create(4);
+    let my_node3_idx = my_node3_els.push(node {.tag = node::f32_add, .data = {}}).idx;
+    my_node3_links.push(link {1, 0, 0, (u16)my_node3_idx, 0});
+    my_node3_links.push(link {1, 1, 0, (u16)my_node3_idx, 1});
+    my_node3_links.push(link {0, (u16)my_node3_idx, 1, 0, 0});
+    let my_node3 = definition {.tag = definition::node, .data = {.node = {.ty = my_fn1_ty_idx, .nodes = my_node3_els, .links = my_node3_links}}};
+    let my_node3_def_idx = defs.push(my_node3);
 
     let my_mod = module {"my module1", defs};
 

@@ -1,6 +1,8 @@
 #pragma once
 #include "types.h"
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 
 template <typename A, typename B>
 using fn1 = B(*)(A);
@@ -14,6 +16,9 @@ struct slab_array {
     u32 max_used_slot_idx; // TODO
     void* data;
 
+	// NOTE(DH): Its needed for rendering selected nodes/connections on top
+	u32 *iter_order;
+
     struct ptr {u32 idx;};
 
     struct slot_t {
@@ -26,18 +31,21 @@ struct slab_array {
 
     static func create(u32 slot_count) -> slab_array<A> {
         // static_assert(sizeof(A) >= sizeof(u32));
-        return slab_array<A> {.capacity = slot_count, .first_free_slot_idx = 0, .max_used_slot_idx = 0, .data = calloc(sizeof(slot_t), slot_count)};
+        return slab_array<A> {.capacity = slot_count, .first_free_slot_idx = 0, .max_used_slot_idx = 0, .data = calloc(sizeof(slot_t), slot_count), .iter_order = (u32*)calloc(sizeof(u32), slot_count)};
     }
 
     func dealloc() -> void {
         free(this->data);
+		free(this->iter_order);
     }
 
     func resize(u32 new_capacity) -> void {
         let old_capacity = this->capacity;
         let new_data = realloc(this->data, sizeof(slot_t) * new_capacity);
+		let new_iter_order = realloc(this->iter_order, sizeof(u32) * new_capacity);
         memset((slot_t*)new_data + old_capacity, 0, new_capacity - old_capacity);
         this->data = new_data;
+		this->iter_order = (u32*)new_iter_order;
         this->capacity = new_capacity;
     }
 
@@ -54,6 +62,7 @@ struct slab_array {
                 this->first_free_slot_idx = data[this->first_free_slot_idx].data.next_free_slot_idx;
             }
             data[slot_idx] = slot_t {.data = {.val = val}, .in_use = true};
+			iter_order[slot_idx] = slot_idx;
             this->max_used_slot_idx = std::max(this->max_used_slot_idx, slot_idx);
             return ptr {slot_idx};
         }
@@ -63,6 +72,7 @@ struct slab_array {
         let idx = _idx.idx;
         let data = (slot_t*)this->data;
         data[idx] = slot_t {.data = {.next_free_slot_idx = this->first_free_slot_idx}, .in_use = false};
+		iter_order[idx] = 0; // TODO(DH): Maybe move bottom elements to top?...
         this->first_free_slot_idx = idx;
     }
 
@@ -88,6 +98,25 @@ struct slab_array {
         }
         return;
     }
+
+	template <typename F>
+    func iter_in_order(F f) -> void {
+        for (var i = 0; i <= this->max_used_slot_idx; i++) {
+            let el = ((slot_t*)this->data + this->iter_order[i]);
+            if (el->in_use) {
+                f(&el->data.val, i);
+            }
+        }
+        return;
+    }
+
+	func swap_to_last(u32 new_idx) -> void {
+		//if(new_idx == 0) return;
+		printf("Swapped succesfully\n");
+		u32 tmp = this->iter_order[this->max_used_slot_idx];
+		this->iter_order[this->max_used_slot_idx] = this->iter_order[new_idx];
+		this->iter_order[new_idx] = tmp;
+	}
 
     template <typename ACC>
     func fold(ACC acc, fn2<A, ACC, ACC> f) -> ACC {
