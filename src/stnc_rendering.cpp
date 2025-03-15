@@ -1,5 +1,7 @@
 #pragma once
 #include "util/memory_management.h"
+#include <algorithm>
+#include <cstdint>
 #include <cstdio>
 
 #define IMGUI_DEFINE_MATH_OPERATORS
@@ -12,7 +14,11 @@
 
 struct stnc_rendering {
 	bool active_conntection;
+	u16 current_selcted_node_idx;
+	f32 zoom_factor;
 	v2 start_point;
+
+	ImVec2 canvas_panning;
 
 	arena_ptr<struct module> mod;
 };
@@ -28,6 +34,16 @@ struct bezier {
 auto im_vec2 = [](v2 vec) -> ImVec2 {
 	return ImVec2(vec.x, vec.y);
 };
+
+inline func init_stnc_rndr(arena_ptr<struct module> _mod) -> stnc_rendering {
+	stnc_rendering result = {};
+	result.mod = _mod;
+	result.current_selcted_node_idx = 0xFFFF;
+	result.canvas_panning = {0.0f, 0.0f};
+	result.zoom_factor = 1.0f;
+
+	return result;
+}
 
 inline func cubic_bezier(v2 start, v2 control_point_1, v2 control_point_2, v2 end_point, f32 t) -> v2 {
 	f32 u = 1.0f - t;
@@ -189,10 +205,13 @@ func imgui_draw_canvas(dx_context *ctx, stnc_rendering *stnc_rndr)
     {
 		// ImGui::SetCursorPos(ImVec2(0, 0));
         static ImVector<ImVec2> points;
-        static ImVec2 scrolling(0.0f, 0.0f);
         static bool opt_enable_context_menu = true;
         static bool adding_line = false;
 		ImGuiIO& io = ImGui::GetIO();
+		stnc_rndr->zoom_factor += io.MouseWheel * 0.01f;
+		stnc_rndr->zoom_factor = std::fmax(0.01f, stnc_rndr->zoom_factor);
+
+		ImGui::Text("Zoom: %f", stnc_rndr->zoom_factor);
 
 		ImGui::Text("This is canvas position: %f, %f", ImGui::GetCursorScreenPos().x, ImGui::GetCursorScreenPos().y);
 		
@@ -224,7 +243,7 @@ func imgui_draw_canvas(dx_context *ctx, stnc_rendering *stnc_rndr)
         ImGui::InvisibleButton("canvas", canvas_sz, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
         const bool is_hovered = ImGui::IsItemHovered(); // Hovered
         const bool is_active = ImGui::IsItemActive();   // Held
-        const ImVec2 origin(canvas_p0.x + scrolling.x, canvas_p0.y + scrolling.y); // Lock scrolled origin
+        const ImVec2 origin = canvas_p0 + stnc_rndr->canvas_panning; // Lock scrolled origin
         const ImVec2 mouse_pos_in_canvas(io.MousePos.x - origin.x, io.MousePos.y - origin.y);
 
         // Pan (we use a zero mouse threshold when there's no context menu)
@@ -232,8 +251,8 @@ func imgui_draw_canvas(dx_context *ctx, stnc_rendering *stnc_rndr)
         const float mouse_threshold_for_pan = opt_enable_context_menu ? -1.0f : 0.0f;
         if (is_active && ImGui::IsMouseDragging(ImGuiMouseButton_Right, mouse_threshold_for_pan))
         {
-            scrolling.x += io.MouseDelta.x;
-            scrolling.y += io.MouseDelta.y;
+            stnc_rndr->canvas_panning.x += io.MouseDelta.x;
+            stnc_rndr->canvas_panning.y += io.MouseDelta.y;
         }
 
         // Context menu (under default mouse threshold)
@@ -254,9 +273,9 @@ func imgui_draw_canvas(dx_context *ctx, stnc_rendering *stnc_rndr)
 		draw_list->PushClipRect(canvas_p0, canvas_p1, true);
         {
             const float GRID_STEP = 128.0f;
-            for (float x = fmodf(scrolling.x, GRID_STEP); x < canvas_sz.x; x += GRID_STEP)
+            for (float x = fmodf(stnc_rndr->canvas_panning.x, GRID_STEP * stnc_rndr->zoom_factor); x < canvas_sz.x; x += GRID_STEP  * stnc_rndr->zoom_factor)
                 draw_list->AddLine(ImVec2(canvas_p0.x + x, canvas_p0.y), ImVec2(canvas_p0.x + x, canvas_p1.y), IM_COL32(200, 200, 200, 40));
-            for (float y = fmodf(scrolling.y, GRID_STEP); y < canvas_sz.y; y += GRID_STEP)
+            for (float y = fmodf(stnc_rndr->canvas_panning.y, GRID_STEP * stnc_rndr->zoom_factor); y < canvas_sz.y; y += GRID_STEP * stnc_rndr->zoom_factor)
                 draw_list->AddLine(ImVec2(canvas_p0.x, canvas_p0.y + y), ImVec2(canvas_p1.x, canvas_p0.y + y), IM_COL32(200, 200, 200, 40));
         }
 
@@ -266,39 +285,40 @@ func imgui_draw_canvas(dx_context *ctx, stnc_rendering *stnc_rndr)
 		
 		//NOTE(DH) END
 
-		let render_node = [](dx_context* ctx, stnc_rendering *stnc_rndr, ImVec2 canvas_p0, ImVec2 canvas_p1, ImGuiIO io, v2 *child_moving) -> bool {
+		let render_node = [](dx_context* ctx, stnc_rendering *stnc_rndr, ImVec2 canvas_p0, ImVec2 canvas_p1, ImGuiIO io, v2 *_child_moving) -> bool {
 			bool is_node_need_to_be_on_top = false;
 			// printf("Pos: %f, %f\n", child_moving->x, child_moving->y);
-			ImVec2 node_size = ImVec2(300, 600);
-			f32 circle_radius = 10.0f;
-			stnc_rndr->start_point = V2(node_size.x - 20, node_size.y / 3);
+			ImVec2 node_size = ImVec2(300, 600) * stnc_rndr->zoom_factor;
+			f32 circle_radius = 10.0f * stnc_rndr->zoom_factor;
+			stnc_rndr->start_point = V2(node_size.x - (20 * stnc_rndr->zoom_factor), node_size.y / 3);
+			v2 child_moving = *_child_moving * stnc_rndr->zoom_factor;
 
 			char tmp[64];
-			ImGui::SetNextWindowPos(canvas_p0 + im_vec2(*child_moving) + scrolling);
+			ImGui::SetNextWindowPos(canvas_p0 + im_vec2(child_moving) + stnc_rndr->canvas_panning);
 			ImGui::PushClipRect(canvas_p0 + ImVec2(1,1), canvas_p1 - ImVec2(1,1), false);
 			ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(255, 0, 0, 255));
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0);
-			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f, 10.0f));
+			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f, 10.0f) * stnc_rndr->zoom_factor);
 			ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 0.0f);
-			ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 18.0f);
+			ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 18.0f * stnc_rndr->zoom_factor);
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-			snprintf(tmp, sizeof(tmp), "BTN_%p", child_moving);
+			snprintf(tmp, sizeof(tmp), "BTN_%p", _child_moving);
 			ImGui::InvisibleButton(tmp, node_size, ImGuiButtonFlags_MouseButtonLeft);
-			snprintf(tmp, sizeof(tmp), "CNV_%p", child_moving);
+			snprintf(tmp, sizeof(tmp), "CNV_%p", _child_moving);
 			ImGui::BeginChild(tmp, node_size, ImGuiChildFlags_None, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_MenuBar);
 			ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
 			if (ImGui::IsItemActive())
 			{
-				child_moving->x += io.MouseDelta.x;
-				child_moving->y += io.MouseDelta.y;
+				_child_moving->x += io.MouseDelta.x * 1.0f / stnc_rndr->zoom_factor;
+				_child_moving->y += io.MouseDelta.y * 1.0f / stnc_rndr->zoom_factor;
 
 				is_node_need_to_be_on_top = true;
 			}
 
 			ImVec2 output_pin_pos = im_vec2(stnc_rndr->start_point) - ImVec2(circle_radius, circle_radius);
 			ImGui::SetCursorPos(output_pin_pos);
-			snprintf(tmp, sizeof(tmp), "Out_Pin_%p", child_moving);
+			snprintf(tmp, sizeof(tmp), "Out_Pin_%p", _child_moving);
 			ImGui::InvisibleButton(tmp, ImVec2(circle_radius * 2, circle_radius * 2), ImGuiButtonFlags_MouseButtonLeft);
 
 			if(ImGui::IsItemActive()) {
@@ -308,11 +328,11 @@ func imgui_draw_canvas(dx_context *ctx, stnc_rendering *stnc_rndr)
 				// TODO(DH): Create search for spawning new node from list
 			}
 			
-			v2 node_position = V2(canvas_p0.x + scrolling.x + child_moving->x, canvas_p0.y + scrolling.y + child_moving->y);
+			v2 node_position = V2(canvas_p0.x + stnc_rndr->canvas_panning.x + child_moving.x, canvas_p0.y + stnc_rndr->canvas_panning.y + child_moving.y);
 			ImVec2 out_pin_pos_to_node = im_vec2(node_position + stnc_rndr->start_point);
-			// draw_list->AddCircleFilled(out_pin_pos_to_node, circle_radius, IM_COL32(128, 128, 128, 255), 32);
+			draw_list->AddCircleFilled(out_pin_pos_to_node, circle_radius, IM_COL32(128, 128, 128, 255), 32);
 
-			draw_list->AddRectFilled(out_pin_pos_to_node - ImVec2(circle_radius, circle_radius), out_pin_pos_to_node + ImVec2(circle_radius, circle_radius), IM_COL32(255, 255, 0, 255));
+			// draw_list->AddRectFilled(out_pin_pos_to_node - ImVec2(circle_radius, circle_radius), out_pin_pos_to_node + ImVec2(circle_radius, circle_radius), IM_COL32(255, 255, 0, 255));
 			if(ImGui::IsMouseReleased(ImGuiMouseButton_Left) && ImGui::IsMouseHoveringRect(out_pin_pos_to_node - ImVec2(circle_radius, circle_radius), out_pin_pos_to_node + ImVec2(circle_radius, circle_radius))) {
 				ImGui::Text("Global warming!");
 			}
@@ -336,18 +356,16 @@ func imgui_draw_canvas(dx_context *ctx, stnc_rendering *stnc_rndr)
 		};
 
 		bool swap = false;
+		u32 swap_node_idx = 0;
 		let mod = ctx->mem_arena.get_ptr(stnc_rndr->mod);
-		mod->defs.iter_in_order([=, &swap](definition *def, u32 def_idx) -> void {
+		mod->defs.iter_in_order([=, &swap, &swap_node_idx](definition *def, u32 def_idx) -> void {
 			if(def->tag == definition::node) {
 
 				// NOTE(DH): Swap elements only on next iteration for proper drawing!
-				if(swap) 
-					mod->defs.swap_to_last(def_idx-1);
-
-				swap = false;
-				def->data.node.nodes.iter([=, &swap](node *nd) -> void {
+				def->data.node.nodes.iter([=, &swap, &swap_node_idx](node *nd) -> void {
 					if(render_node(ctx, stnc_rndr, canvas_p0, canvas_p1, io, (v2*)nd->pos) == true) {
 						swap = true;
+						swap_node_idx = def_idx;
 						//printf("pressed idx: %u\n", def_idx);
 					}
 					//printf("idx: %u\n", def_idx);
@@ -358,6 +376,8 @@ func imgui_draw_canvas(dx_context *ctx, stnc_rendering *stnc_rndr)
 				});
 			}
 		});
+
+		if(swap_node_idx != 0 && swap) mod->defs.swap_to_last(swap_node_idx);
 
 		
     }

@@ -410,11 +410,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	bezier test_line = create_bezier(&dx_ctx.mem_arena, V2(100, 200), V2(600, 600), 0.25f);
 	SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)&test_line);
 
-	// module test_module = {};
-	// test_module.defs.create(32);
-	// node node_A = mk_node(node_def, {.node_def_idx = {test_module.defs.first_free_slot_idx}});
-	// test_module.defs.push();
-	stnc_rndr.mod = dx_ctx.mem_arena.push_data(example1());
+	stnc_rndr = init_stnc_rndr(dx_ctx.mem_arena.push_data(example1()));
 
 	//NOTE(DH): Initialize IMGUI {
 	IMGUI_CHECKVERSION();
