@@ -1,7 +1,18 @@
 #pragma once
 #include "util/types.h"
 #include "util/slab_array.h"
-#include <cassert>
+
+template<typename a, template<typename> typename ptr_t>
+struct list {
+    a                     data;
+    ptr_t<list<a, ptr_t>> next;
+};
+
+template<typename a>
+using slab_array_ptr = slab_array<a>::ptr;
+
+template<typename a>
+using slab_list = list<a, slab_array_ptr>;
 
 enum quantity {
     zero = 0,
@@ -91,7 +102,7 @@ struct definition {
 
     union data_t {
         struct type_t {slab_array<::type> nodes; slab_array<link> links;}               type;
-        struct node_t {def_idx_t ty; slab_array<::node> nodes; slab_array<link> links;} node;
+        struct node_t {u8 in_pins_count; slab_list<::type> in_pin_types; slab_array<::node> nodes; slab_array<link> links;} node;
     } data;
 };
 
