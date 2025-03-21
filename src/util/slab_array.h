@@ -104,19 +104,29 @@ struct slab_array {
         for (var i = 0; i <= this->max_used_slot_idx; i++) {
             let el = ((slot_t*)this->data + this->iter_order[i]);
             if (el->in_use) {
-                f(&el->data.val, i);
+                f(&el->data.val, i, this->iter_order[i]);
             }
         }
         return;
     }
 
 	func swap_to_last(u32 new_idx) -> void {
-		//if(new_idx == 0) return;
-		printf("Swapped succesfully\n");
-		u32 tmp = this->iter_order[this->max_used_slot_idx];
-		this->iter_order[this->max_used_slot_idx] = this->iter_order[new_idx];
-		this->iter_order[new_idx] = tmp;
+		if(new_idx == 0xFFFF) return;
+		u32 tmp = this->iter_order[new_idx];
+		for(u32 i = new_idx; i < this->max_used_slot_idx; ++i) {
+			this->iter_order[i] = this->iter_order[i+1];
+		}
+		this->iter_order[this->max_used_slot_idx] = tmp;
 	}
+
+	// NOTE(DH): This is n = 1 operation!
+	// TODO(DH): Leave this version if we do not care about order
+	// func swap_to_last(u32 new_idx) -> void {
+	// 	if(new_idx == 0xFFFF) return;
+	// 	u32 tmp = this->iter_order[this->max_used_slot_idx];
+	// 	this->iter_order[this->max_used_slot_idx] = this->iter_order[new_idx];
+	// 	this->iter_order[new_idx] = tmp;
+	// }
 
     template <typename ACC>
     func fold(ACC acc, fn2<A, ACC, ACC> f) -> ACC {

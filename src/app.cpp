@@ -288,7 +288,7 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 			// case WM_MOUSEMOVE: {}; break;
 			case WM_MOUSEWHEEL: {
 				main_window_info.mouse_wheel_delta = GET_WHEEL_DELTA_WPARAM(wParam) / 120.0f;// / (120.0f * 500.0f);
-				printf("Mouse wheel delta: %f\n", main_window_info.mouse_wheel_delta);
+				//printf("\nMouse wheel delta: %f\n", main_window_info.mouse_wheel_delta);
 			} break;
 		}
 		// printf("window size = %u, %u\n", main_window_info.height, main_window_info.width);
@@ -410,7 +410,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	bezier test_line = create_bezier(&dx_ctx.mem_arena, V2(100, 200), V2(600, 600), 0.25f);
 	SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)&test_line);
 
-	stnc_rndr = init_stnc_rndr(dx_ctx.mem_arena.push_data(example1()));
+	stnc_rndr = init_stnc_rndr(&dx_ctx.mem_arena, dx_ctx.mem_arena.push_data(example1()));
 
 	//NOTE(DH): Initialize IMGUI {
 	IMGUI_CHECKVERSION();

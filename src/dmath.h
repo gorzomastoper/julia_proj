@@ -199,6 +199,12 @@ next_power_of_two(u32 n) {
 	return n + 1;
 }
 
+inline f32
+rad_to_deg(f32 radians) {
+	constexpr f32 deg_per_rad = 180.0f / 3.1415926f;
+	return radians * deg_per_rad;
+}
+
 inline i32
 SignOf(i32 Value)
 {
@@ -379,6 +385,19 @@ V4(f32 x, f32 y, f32 z, f32 w)
 	Result.y = y;
 	Result.z = z;
 	Result.w = w;
+	
+	return(Result);
+}
+
+inline v4 
+V4(v2 xy, v2 zw)
+{
+	v4 Result;
+	
+	Result.x = xy.x;
+	Result.y = xy.y;
+	Result.z = zw.x;
+	Result.w = zw.y;
 	
 	return(Result);
 }
