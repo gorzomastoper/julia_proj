@@ -597,11 +597,24 @@ func imgui_draw_canvas(dx_context *ctx, stnc_rendering *stnc_rndr)
         // Pan (we use a zero mouse threshold when there's no context menu)
         // You may decide to make that threshold dynamic based on whether the mouse is hovering something etc.
         const float mouse_threshold_for_pan = opt_enable_context_menu ? -1.0f : 0.0f;
-        if (is_active && ImGui::IsMouseDragging(ImGuiMouseButton_Right, mouse_threshold_for_pan))
+        if (is_active && ImGui::IsMouseDragging(ImGuiMouseButton_Right, mouse_threshold_for_pan) && !stnc_rndr->active_conntection)
         {
             stnc_rndr->canvas_panning.x += io.MouseDelta.x;
             stnc_rndr->canvas_panning.y += io.MouseDelta.y;
         }
+
+		f32 x_plane_min = canvas_p0.x + 20;
+		f32 x_plane_max = canvas_p1.x - 20;
+		f32 y_plane_min = canvas_p0.y + 20;
+		f32 y_plane_max = canvas_p1.y - 20;
+
+		if(stnc_rndr->active_conntection) {
+			f32 drag_delta = 1.0f;
+			if(io.MousePos.x <= x_plane_min) { stnc_rndr->canvas_panning.x += fmax(drag_delta, abs(x_plane_min - io.MousePos.x)) / 10; stnc_rndr->bezier_temp_start_pos.x += fmax(drag_delta, abs(x_plane_min - io.MousePos.x)) / 10;}
+			if(io.MousePos.y <= y_plane_min) { stnc_rndr->canvas_panning.y += fmax(drag_delta, abs(y_plane_min - io.MousePos.y)) / 10; stnc_rndr->bezier_temp_start_pos.y += fmax(drag_delta, abs(y_plane_min - io.MousePos.y)) / 10;}
+			if(io.MousePos.x >= x_plane_max) { stnc_rndr->canvas_panning.x -= fmax(drag_delta, abs(x_plane_max - io.MousePos.x)) / 10; stnc_rndr->bezier_temp_start_pos.x -= fmax(drag_delta, abs(x_plane_max - io.MousePos.x)) / 10;}
+			if(io.MousePos.y >= y_plane_max) { stnc_rndr->canvas_panning.y -= fmax(drag_delta, abs(y_plane_max - io.MousePos.y)) / 10; stnc_rndr->bezier_temp_start_pos.y -= fmax(drag_delta, abs(y_plane_max - io.MousePos.y)) / 10;}
+		}
 
         // Context menu (under default mouse threshold)
         ImVec2 drag_delta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Right);
@@ -701,10 +714,10 @@ func imgui_draw_canvas(dx_context *ctx, stnc_rendering *stnc_rndr)
 			draw_pin(stnc_rndr->node_bezier_color, stnc_rndr->pin_radius / 2, ctx, stnc_rndr, "", draw_list, im_vec2(pin_pos), stnc_rndr->current_selcted_node_idx, false);
 		}
 
-		char *pie_menu_items[] {"Add", "Move", "Delete", "Show"};//, "Delete", "Show", "BLock"};
+		char *pie_menu_items[] {"Add", "Move", "Delete", "Show", "Throw", "Le", "Me", "Nethe", "PEPE", "RERE", "MERE"};//, "Delete", "Show", "BLock"};
 
 		if(stnc_rndr->active_pie_menu && !ImGui::IsKeyReleased(ImGuiKey_LeftCtrl,ImGuiInputFlags_LockUntilRelease)) {
-			u32 idx = draw_pie_menu(draw_list, stnc_rndr->pie_menu_centre, 10.0f, pie_menu_items, _countof(pie_menu_items));
+			u32 idx = draw_pie_menu(draw_list, stnc_rndr->pie_menu_centre, 50.0f, pie_menu_items, _countof(pie_menu_items));
 			printf("\n%u", idx);
 		} else {
 			stnc_rndr->active_pie_menu = false;
