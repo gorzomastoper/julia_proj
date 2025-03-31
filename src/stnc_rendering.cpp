@@ -325,8 +325,9 @@ inline func draw_pie_menu(ImDrawList *draw_list, ImVec2 pie_menu_pos, f32 dist_t
 
 	// NOTE(DH): Draw pie menu
 	u32 item_idx = 0;
-	for(float curr_angle = 0.0f; curr_angle < 2.0 * PI; curr_angle += increment)
+	for(float curr_angle = 0.0f; (curr_angle < 2.0 * PI) && (item_idx != menu_items_count); curr_angle += increment)
 	{
+		assert(!(item_idx == menu_items_count));
 		ImColor text_color = item_idx == result ? IM_COL32(255, 255, 0, 255) : IM_COL32_WHITE;
 
 		ImVec2 centre = ImVec2(radius * cos(curr_angle) + pie_menu_pos.x, radius * sin(curr_angle) + pie_menu_pos.y);
@@ -714,7 +715,7 @@ func imgui_draw_canvas(dx_context *ctx, stnc_rendering *stnc_rndr)
 			draw_pin(stnc_rndr->node_bezier_color, stnc_rndr->pin_radius / 2, ctx, stnc_rndr, "", draw_list, im_vec2(pin_pos), stnc_rndr->current_selcted_node_idx, false);
 		}
 
-		char *pie_menu_items[] {"Add", "Move", "Delete", "Show", "Throw", "Le", "Me", "Nethe", "PEPE", "RERE", "MERE"};//, "Delete", "Show", "BLock"};
+		char *pie_menu_items[] {"Add", "Move", "Delete", "Show", "Throw", "Le", "Me", "Nethe", "PEPE", "RERE"};//, "Delete", "Show", "BLock"};
 
 		if(stnc_rndr->active_pie_menu && !ImGui::IsKeyReleased(ImGuiKey_LeftCtrl,ImGuiInputFlags_LockUntilRelease)) {
 			u32 idx = draw_pie_menu(draw_list, stnc_rndr->pie_menu_centre, 50.0f, pie_menu_items, _countof(pie_menu_items));

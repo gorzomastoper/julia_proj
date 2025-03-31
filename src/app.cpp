@@ -23,6 +23,7 @@
 // #include "simulation_of_particles.cpp"
 #include "simulation_of_particles_2D_GPU.cpp"
 #include "dx_backend.h"
+#include "vk_backend.h"
 
 //NOTE(DH): ImGUI implementation import {
 #define IMGUI_DEFINE_MATH_OPERATORS
@@ -104,6 +105,7 @@ struct ExampleDescriptorHeapAllocator
 } g_pd3dSrvDescHeapAlloc;
 
 static dx_context dx_ctx;
+static vk_context vk_ctx;
 static stnc_rendering stnc_rndr;
 
 struct {
@@ -407,6 +409,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	//NOTE(DH): Full directx initialization
 	dx_ctx = init_dx(dx_ctx.g_hwnd);
 
+	//NOTE(DH): Full vulkan initialization
+	vk_ctx = vk_init();
+
 	bezier test_line = create_bezier(&dx_ctx.mem_arena, V2(100, 200), V2(600, 600), 0.25f);
 	SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)&test_line);
 
@@ -517,6 +522,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
 	//Make sure command queue has finished all in-flight commands before closing
 	flush(dx_ctx);
+
+	vk_cleanup(&vk_ctx);
 
 	VirtualFree(dx_ctx.mem_arena.base, dx_ctx.mem_arena.size, MEM_RELEASE);
 

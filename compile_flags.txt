@@ -5,6 +5,7 @@
 --include-directory=./src/imgui-docking
 --include-directory=./src/imgui-docking/backends
 --include-directory=./src/directx
+--include-directory=C:/VulkanSDK/1.4.309.0/include
 -std=c++20
 -D DEBUG
 -g

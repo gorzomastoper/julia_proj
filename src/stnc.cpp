@@ -102,7 +102,8 @@ struct definition {
 
     union data_t {
         struct type_t {slab_array<::type> nodes; slab_array<link> links;}               type;
-        struct node_t {u8 in_pins_count; slab_list<::type> in_pin_types; slab_array<::node> nodes; slab_array<link> links;} node;
+        struct node_t {def_idx_t ty; slab_array<::node> nodes; slab_array<link> links;} node;
+        // struct node_t {u8 in_pins_count; slab_list<::type> in_pin_types; slab_array<::node> nodes; slab_array<link> links;} node;
     } data;
 };
 
