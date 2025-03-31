@@ -1,2 +1,2 @@
-# julia_proj
-Little program for building programs (with custom node editor)
+# My little pet-project
+Node editing workbench
