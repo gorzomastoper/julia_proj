@@ -1,0 +1,7 @@
+/.vscode
+/bin/.vs
+*.ilk
+*.ini
+*.pdb
+*.exe
+*.lib
