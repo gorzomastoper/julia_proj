@@ -46,9 +46,8 @@
 #pragma comment(lib, "dxguid.lib")
 #endif
 
-#if 1
-#define USE_DX12
-#endif
+//#define USE_DX12
+#define USE_VULKAN
 
 #ifdef VIRT_ALLOCATION
 void* allocate_memory(void* base, size_t size) { return VirtualAlloc(base, size, MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);}
@@ -250,6 +249,15 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 					}
 					quiting = dx_ctx.g_is_quitting;
 				} return 0;
+#elif defined USE_VULKAN
+				case WM_PAINT: {
+					RECT ClientRect;
+					GetClientRect(hwnd, &ClientRect);
+					u32 current_time = GetCurrentTime();
+					u32 delta_time = current_time - last_time;
+					last_time = current_time;
+					vk_ctx.draw_frame(delta_time,(u32)(ClientRect.right - ClientRect.left),(u32)(ClientRect.bottom - ClientRect.top));
+				}; return 0;			
 #endif
 
 			case WM_SIZE: {
@@ -265,6 +273,8 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 					global_pause = false;
 					resize(&dx_ctx, main_window_info.width, main_window_info.height);
 				}
+#elif defined USE_VULKAN
+				vk_ctx.resize(main_window_info.width, main_window_info.height);
 #else
 				do_redraw(hwnd);
 #endif
@@ -330,49 +340,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         freopen_s(&fpstderr, "CONOUT$", "w", stderr);
     #endif
 
-    // ui_button("hello")(mk_empty_ui_context());
-    // asdd("helll2");
-    // let of1 = bk_state.components_data.write<u64>(11);
-    // let of2 = bk_state.components_data.write<u32>(22);
-    // let of3 = bk_state.components_data.write<u64>(33);
-    // let of4 = bk_state.components_data.write<u32>(44);
-    // let of5 = bk_state.components_data.write<u32>(55);
-    // let of6 = bk_state.components_data.write<u8>(66);
-    // let of7 = bk_state.components_data.write<u64>(77);
-
-    // printf("of1 = %llu\n", *bk_state.components_data.get_ptr<u64>(of1));
-    // printf("of2 = %u\n", *bk_state.components_data.get_ptr<u32>(of2));
-    // printf("of3 = %llu\n", *bk_state.components_data.get_ptr<u64>(of3));
-    // printf("of4 = %u\n", *bk_state.components_data.get_ptr<u32>(of4));
-    // printf("of5 = %u\n", *bk_state.components_data.get_ptr<u32>(of5));
-    // printf("of6 = %u\n", *bk_state.components_data.get_ptr<u8>(of6));
-    // printf("of7 = %llu\n", *bk_state.components_data.get_ptr<u64>(of7));
-
-	//NOTE(DH): Enumerate audio devices - START
-	// LPWSTR device_id_name;
-	// IMMDeviceCollection *audio_collection;
-	// IMMDevice *devices[10];
-	// IPropertyStore *p_props = NULL;
-	// auto node = CoInitialize(NULL);
-	// IMMDeviceEnumerator *pEnumerator = NULL;
-	// node = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL, IID_PPV_ARGS(&pEnumerator));
-	// node = pEnumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &audio_collection);
-
-	// u32 num_devices = 0;
-	// audio_collection->GetCount(&num_devices);
-
-	// for(u32 i = 0; i < num_devices; ++i)
-	// {
-	// 	audio_collection->Item(i, &devices[i]);
-	// 	devices[i]->GetId(&device_id_name);
-	// 	devices[i]->OpenPropertyStore(STGM_READ, &p_props);
-
-	// 	PROPVARIANT prop_name;
-	// 	PropVariantInit(&prop_name);
-	// 	node = p_props->GetValue(PKEY_Device_FriendlyName, &prop_name);
-	// }
 	//NOTE(DH): Enumerate audio devices - END
-
     const wchar_t CLASS_NAME[]  = L"Sample Window Class";
 
     WNDCLASS wc = {};
@@ -403,14 +371,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     }
 
 	// NOTE(DH): Below is the initialization of resources
+	// NOTE(DH): Full directx initialization
+	dx_ctx = init_dx(hwnd);
 
-	dx_ctx.g_hwnd = hwnd;
-
-	//NOTE(DH): Full directx initialization
-	dx_ctx = init_dx(dx_ctx.g_hwnd);
-
-	//NOTE(DH): Full vulkan initialization
-	vk_ctx = vk_init();
+	// NOTE(DH): Full vulkan initialization
+	vk_ctx = vk_context::make(hwnd);
 
 	bezier test_line = create_bezier(&dx_ctx.mem_arena, V2(100, 200), V2(600, 600), 0.25f);
 	SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)&test_line);
@@ -492,7 +457,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
         MSG msg = {};
 
-#ifdef USE_DX12
+#if defined(USE_DX12) || defined(USE_VULKAN)
 		while (msg.message != WM_QUIT && quiting == false) {
 			if(PeekMessage(&msg,0,0,0,PM_REMOVE)) {
 				TranslateMessage(&msg);
@@ -506,29 +471,19 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 		}
 #endif
 
-
-#ifdef USE_DX12
-
-#else
-   		if (let res = generate_one(map, map_size_x, map_size_y, ng_list, free_ng_ls, best_ng_idx)) {
-            std::tie(ng_list, free_ng_ls, best_ng_idx) = *res;
-        }
-        map_to_img(map, map_img_buf, map_size_x, map_size_y);
-
-        do_redraw(hwnd);
-#endif
-
     //}
-
+#ifdef USE_DX12
 	//Make sure command queue has finished all in-flight commands before closing
 	flush(dx_ctx);
-
-	vk_cleanup(&vk_ctx);
-
 	VirtualFree(dx_ctx.mem_arena.base, dx_ctx.mem_arena.size, MEM_RELEASE);
-
 	//Closing event handle
 	CloseHandle(dx_ctx.g_fence_event);
+#
+#elif defined USE_VULKAN
+	vk_ctx.cleanup();
+	vkDeviceWaitIdle(vk_ctx.device);
+#endif
+
 
     return 0;
 }
