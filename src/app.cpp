@@ -3,6 +3,7 @@
 #include <basetsd.h>
 #include <combaseapi.h>
 #include <memoryapi.h>
+#include <minwindef.h>
 #include <propsys.h>
 #include <stdlib.h>
 #include <synchapi.h>
@@ -251,12 +252,20 @@ LRESULT CALLBACK main_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
 				} return 0;
 #elif defined USE_VULKAN
 				case WM_PAINT: {
+					const i32 target_fps = 144;
+					const i32 target_ms = 1000 / target_fps;
+
 					RECT ClientRect;
 					GetClientRect(hwnd, &ClientRect);
 					u32 current_time = GetCurrentTime();
 					u32 delta_time = current_time - last_time;
 					last_time = current_time;
 					vk_ctx.draw_frame(delta_time,(u32)(ClientRect.right - ClientRect.left),(u32)(ClientRect.bottom - ClientRect.top));
+					
+					u32 sleep_time = last_time - current_time + target_ms;
+					if(sleep_time > 0) {
+						Sleep(sleep_time);
+					}
 				}; return 0;			
 #endif
 
@@ -445,17 +454,16 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	f32 target_seconds_per_frame = 1.0f / (f32)game_update_hz;
 	last_time = GetCurrentTime(); // TODO(DH): Implement it like in DENGINE!!!
 
-   // while (quiting == false) {
-        // POINT mpos = {};
-        // GetCursorPos(&mpos);
-        // ScreenToClient(hwnd,&mpos);
-        // main_window_info.mouse_x = mpos.x;
-        // main_window_info.mouse_y = mpos.y;
+	// POINT mpos = {};
+	// GetCursorPos(&mpos);
+	// ScreenToClient(hwnd,&mpos);
+	// main_window_info.mouse_x = mpos.x;
+	// main_window_info.mouse_y = mpos.y;
 
-		// NOTE(DH): Set fixed delta time
-		dx_ctx.dt_for_frame = target_seconds_per_frame;
+	// NOTE(DH): Set fixed delta time
+	dx_ctx.dt_for_frame = target_seconds_per_frame;
 
-        MSG msg = {};
+	MSG msg = {};
 
 #if defined(USE_DX12) || defined(USE_VULKAN)
 		while (msg.message != WM_QUIT && quiting == false) {
@@ -471,7 +479,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 		}
 #endif
 
-    //}
 #ifdef USE_DX12
 	//Make sure command queue has finished all in-flight commands before closing
 	flush(dx_ctx);

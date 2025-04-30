@@ -11,19 +11,19 @@ v2 calculate_circle_uv(f32 radius, f32 angle, f32 max_radius) {
 }
 
 // Generate simple circle
-std::vector<vertex> generate_circle_vertices(f32 radius, f32 x, f32 y, u32 fragments)
+std::vector<dx_vertex> generate_circle_vertices(f32 radius, f32 x, f32 y, u32 fragments)
 {
 	const float PI = 3.1415926f;
-	std::vector<vertex> result;
+	std::vector<dx_vertex> result;
 
 	float increment = 2.0 * PI / fragments;
 
-	result.push_back(vertex{V3(x, y, 0.0), V4(0.5, 0.5, 0, 0)});
+	result.push_back(dx_vertex{V3(x, y, 0.0), V4(0.5, 0.5, 0, 0)});
 
 	for(float curr_angle = 0.0f; curr_angle < 2.0 * PI; curr_angle += increment)
 	{
 		v2 uv = calculate_circle_uv(radius, curr_angle, radius * 4.0f);
-		result.push_back(vertex{V3(radius * cos(curr_angle) + x, radius * sin(curr_angle) + y, 0.0), V4(uv.x, uv.y, 0, 0)});
+		result.push_back(dx_vertex{V3(radius * cos(curr_angle) + x, radius * sin(curr_angle) + y, 0.0), V4(uv.x, uv.y, 0, 0)});
 	}
 
 	return result;
@@ -554,13 +554,13 @@ static inline func initialize_simulation(dx_context *ctx, u32 particle_count) ->
 			ID3DBlob* vertex_shader = compile_shader(ctx->g_device, shader_path, "VSMain", "vs_5_0");
 			ID3DBlob* pixel_shader 	= compile_shader(ctx->g_device, shader_path, "PSMain", "ps_5_0");
 
-			std::vector<vertex> circ_data 	= generate_circle_vertices(sim.particle_size, 0, 0, 64);
+			std::vector<dx_vertex> circ_data 	= generate_circle_vertices(sim.particle_size, 0, 0, 64);
 			std::vector<u32> circ_idc 		= generate_circle_indices(64);
 
 			auto mtx_data = sim.arena.get_array(sim.matrices);
 			// NOTE(DH): Create resources
 			buffer_cbuf cbuff 		= buffer_cbuf	::	create 	(ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, (u8*)&ctx->common_cbuff_data,0);
-			buffer_vtex mesh		= buffer_vtex	::	create 	(ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, (u8*)circ_data.data(), circ_data.size() * sizeof(vertex), 64);
+			buffer_vtex mesh		= buffer_vtex	::	create 	(ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, (u8*)circ_data.data(), circ_data.size() * sizeof(dx_vertex), 64);
 			buffer_idex idxs		= buffer_idex	::	create 	(ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, (u8*)circ_idc.data(), circ_idc.size() * sizeof(u32), particle_count, 65);
 			buffer_1d 	matrices 	= buffer_1d		::	create	(ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, particle_count, sizeof(mat4), (u8*)mtx_data, 0);
 			buffer_cbuf	particle_info_buffer 		= buffer_cbuf		::create (ctx->g_device, sim.arena, &sim.simulation_desc_heap, &sim.resources_and_views, (u8*)&sim.info_for_cshader, 1);

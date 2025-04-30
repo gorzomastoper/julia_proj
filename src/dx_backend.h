@@ -48,7 +48,7 @@ inline void ThrowIfFailed(HRESULT hr)
 
 using namespace Microsoft::WRL;
 
-struct vertex
+struct dx_vertex
 {
 	v3 position;
 	v4 color;
@@ -1010,7 +1010,7 @@ struct Finalize<t_list_cons<B, U, CP, CFGC, buffer_vtex, TS>> {
 
 		// Initialize the vertex buffer view.
 		buffer_desc->view.BufferLocation	= r_n_v->addr->GetGPUVirtualAddress();
-		buffer_desc->view.StrideInBytes		= sizeof(vertex);
+		buffer_desc->view.StrideInBytes		= sizeof(dx_vertex);
 		buffer_desc->view.SizeInBytes		= buffer_desc->size_of_data;
 
 		Finalize<TS>::finalize(list.tail, ctx, arena, resources_and_views, cmd_list, heap);
@@ -1458,7 +1458,7 @@ inline func buffer_vtex::create (ID3D12Device2* device, memory_arena arena, desc
 	result.size_of_data = size_of_data;
 	result.data = data;
 	result.res_and_view_idx = r_n_v->count;
-	result.size_of_one_elem = sizeof(vertex);
+	result.size_of_one_elem = sizeof(dx_vertex);
 
 	resource_and_view* res_n_view = arena.load_ptr_by_idx(r_n_v->ptr, r_n_v->count++);
 
