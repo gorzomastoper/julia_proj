@@ -49,6 +49,10 @@ public:
 		result[2].offset = offsetof(vk_vertex, tex_coord);
 		return result;
 	}
+
+	bool operator==(const vk_vertex& other) const {
+		return position == other.position && color == other.color && tex_coord == other.tex_coord;
+	}
 };
 
 template<typename T>
@@ -92,11 +96,19 @@ struct uniform_buffer {
 
 struct texture_buffer {
 	u32 				size;
+	u32					mip_levels;
 	vk_image_and_memory	vk_data;
 	VkImageView			image_view;
 	VkSampler			image_sampler;
 	u32 get_el_size() { return 4; }
 	u32 get_el_count() { return size / get_el_size(); };
+};
+
+template<typename T>
+struct model {
+	texture_buffer 		texture;
+	buffer<vk_vertex> 	vertices;
+	buffer<T> 			indices;
 };
 
 struct vk_context {
@@ -137,6 +149,7 @@ struct vk_context {
 
 	texture_buffer		simple_texture;
 	texture_buffer		depth_texture;
+	model<u32>			viking_room;
 
 	u32 				window_width, window_height;
 
@@ -171,7 +184,7 @@ func vk_create_swap_chain(VkPhysicalDevice, VkDevice, VkSurfaceKHR, u32 width, u
 
 func vk_create_images_for_swap_chain(vk_context *ctx) -> u32;
 
-func vk_create_image_view(VkDevice device, VkImage image, VkFormat format, VkImageViewType view_type, VkImageAspectFlags aspect_mask) -> VkImageView;
+func vk_create_image_view(VkDevice device, VkImage image, u32, VkFormat format, VkImageViewType view_type, VkImageAspectFlags aspect_mask) -> VkImageView;
 
 func vk_create_shader_module(vk_context ctx, u32* code, u32 size) -> VkShaderModule;
 
@@ -199,7 +212,8 @@ func vk_copy_buffer(VkDevice device, VkQueue queue, VkBuffer src_buffer, VkBuffe
 
 func create_vertex_buffer(VkPhysicalDevice physical_device, VkDevice device, VkQueue queue, VkCommandPool pool, VkDeviceSize size, void* vertex_data, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags properties) -> buffer<vk_vertex>;
 
-func create_index_buffer(VkPhysicalDevice physical_device, VkDevice device, VkQueue queue, VkCommandPool pool, VkDeviceSize size, void* index_data, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags properties) -> buffer<u16>;
+template<typename T>
+func create_index_buffer(VkPhysicalDevice physical_device, VkDevice device, VkQueue queue, VkCommandPool pool, VkDeviceSize size, void* index_data, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags properties) -> buffer<T>;
 
 func vk_create_descriptor_set_layout(VkDevice device, VkDescriptorType descriptor_type, VkShaderStageFlags stage_flags) -> VkDescriptorSetLayout;
 

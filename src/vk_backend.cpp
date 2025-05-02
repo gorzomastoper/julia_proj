@@ -1,5 +1,6 @@
 #include "vk_backend.h"
 #include <climits>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -9,6 +10,8 @@
 #include <libloaderapi.h>
 #include <stdexcept>
 #include <stdlib.h>
+#include <unordered_map>
+#include <vector>
 #include <winuser.h>
 
 // NOTE(DH): Include VULKAN API stuff
@@ -17,39 +20,54 @@
 
 // NOTE(DH): Include math stuff from GLM. TODO(DH): Write my own functions to study
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
+#include <glm/gtx/hash.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 // NOTE(DH): Include STB image for just expirementing with some stuff
 #define STB_IMAGE_IMPLEMENTATION
 #include "deps/stb_image.h"
 
+// NOTE(DH): Include Tiny Obj Loader for fast iterations
+#define TINYOBJLOADER_IMPLEMENTATION
+#include "deps/tiny_obj_loader.h"
+
+inline func v3_to_glm(v3 vec) -> glm::vec3 {
+	return glm::vec3(vec.x, vec.y, vec.z);
+}
+
+inline func v2_to_glm(v2 vec) -> glm::vec2 {
+	return glm::vec2(vec.x, vec.y);
+}
+
 func vk_create_texture_sampler(VkPhysicalDevice physical_device, VkDevice device) -> VkSampler {
 	VkSampler result = {};
 	VkSamplerCreateInfo create_info = {};
-	create_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-	create_info.magFilter = VK_FILTER_LINEAR;
-	create_info.minFilter = VK_FILTER_LINEAR;
-	create_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-	create_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-	create_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-	create_info.anisotropyEnable = VK_TRUE;
+	create_info.sType 				= VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+	create_info.magFilter 			= VK_FILTER_LINEAR;
+	create_info.minFilter 			= VK_FILTER_LINEAR;
+	create_info.addressModeU 		= VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	create_info.addressModeV 		= VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	create_info.addressModeW 		= VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	create_info.anisotropyEnable 	= VK_TRUE;
+
 	VkPhysicalDeviceProperties props = {};
 	vkGetPhysicalDeviceProperties(physical_device, &props);
-	create_info.maxAnisotropy = props.limits.maxSamplerAnisotropy;
-	create_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+	create_info.maxAnisotropy 			= props.limits.maxSamplerAnisotropy;
+	create_info.borderColor 			= VK_BORDER_COLOR_INT_OPAQUE_BLACK;
 	create_info.unnormalizedCoordinates = VK_FALSE;
-	create_info.compareEnable = VK_FALSE;
-	create_info.compareOp = VK_COMPARE_OP_ALWAYS;
-	create_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-	create_info.mipLodBias = 0.0f;
-	create_info.minLod = 0.0f;
-	create_info.maxLod = 0.0f;
+	create_info.compareEnable 			= VK_FALSE;
+	create_info.compareOp 				= VK_COMPARE_OP_ALWAYS;
+	create_info.mipmapMode 				= VK_SAMPLER_MIPMAP_MODE_LINEAR;
+	create_info.mipLodBias 				= 0.0f;
+	create_info.minLod 					= 0.0f;
+	create_info.maxLod 					= VK_LOD_CLAMP_NONE;
 	vkCreateSampler(device, &create_info, nullptr, &result);
 	return result;
 }
 
-func vk_create_image(VkPhysicalDevice physical_device, VkDevice device, u32 width, u32 height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage_flags, VkMemoryPropertyFlags property_flags) -> vk_image_and_memory {
+func vk_create_image(VkPhysicalDevice physical_device, VkDevice device, u32 width, u32 height, u32 mip_levels, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage_flags, VkMemoryPropertyFlags property_flags) -> vk_image_and_memory {
 	vk_image_and_memory result = {};
 
 	VkImageCreateInfo image_info = {};
@@ -58,7 +76,7 @@ func vk_create_image(VkPhysicalDevice physical_device, VkDevice device, u32 widt
 	image_info.extent.width = width;
 	image_info.extent.height = height;
 	image_info.extent.depth = 1;
-	image_info.mipLevels = 1;
+	image_info.mipLevels = mip_levels;
 	image_info.arrayLayers = 1;
 	image_info.format = format;
 	image_info.tiling = tiling;;
@@ -118,7 +136,7 @@ func vk_has_stencil_component(VkFormat format) -> bool {
 	return result;
 }
 
-func vk_transition_image_layout(VkDevice device, VkImage image, VkFormat format, VkImageLayout old_layout, VkImageLayout new_layout, VkQueue queue, VkCommandPool command_pool) -> void {
+func vk_transition_image_layout(VkDevice device, VkImage image, u32 mip_levels, VkFormat format, VkImageLayout old_layout, VkImageLayout new_layout, VkQueue queue, VkCommandPool command_pool) -> void {
 	VkCommandBuffer cmd_buffer = vk_begin_single_time_commands(device, command_pool);
 	VkImageMemoryBarrier barrier = {};
 	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -129,7 +147,7 @@ func vk_transition_image_layout(VkDevice device, VkImage image, VkFormat format,
 	barrier.image = image;
 	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	barrier.subresourceRange.baseMipLevel = 0;
-	barrier.subresourceRange.levelCount = 1;
+	barrier.subresourceRange.levelCount = mip_levels;
 	barrier.subresourceRange.baseArrayLayer = 0;
 	barrier.subresourceRange.layerCount = 1;
 
@@ -226,12 +244,96 @@ func vk_copy_buffer_to_image(VkDevice device, VkQueue queue, VkCommandPool comma
 func vk_create_depth_resources(VkPhysicalDevice physical_device, VkDevice device, VkQueue queue, VkCommandPool command_pool, VkExtent2D extent) -> texture_buffer {
 	texture_buffer result = {};
 	VkFormat depth_format 	= vk_find_depth_format(physical_device);
-	result.vk_data 			= vk_create_image(physical_device, device, extent.width, extent.height, depth_format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-	result.image_view 		= vk_create_image_view(device, result.vk_data.image, depth_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT);
+	result.vk_data 			= vk_create_image(physical_device, device, extent.width, extent.height, 1, depth_format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	result.image_view 		= vk_create_image_view(device, result.vk_data.image, 1, depth_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT);
 
-	vk_transition_image_layout(device, result.vk_data.image, depth_format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, queue, command_pool);
+	vk_transition_image_layout(device, result.vk_data.image, 1, depth_format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, queue, command_pool);
 	
 	return result;
+}
+
+func vk_generate_mipmaps(VkPhysicalDevice physical_device, VkDevice device, VkQueue queue, VkCommandPool command_pool, VkImage image, VkFormat image_format, u32 width, u32 height, u32 mip_levels) -> void {
+	
+	VkFormatProperties props;
+	vkGetPhysicalDeviceFormatProperties(physical_device, image_format, &props);
+	if(!(props.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)) {
+		throw std::runtime_error("Nah, tex image format does not support linear blitting :(");
+	}
+	
+	VkCommandBuffer cmd_buffer = vk_begin_single_time_commands(device, command_pool);
+
+	VkImageMemoryBarrier barrier = {};
+	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	barrier.image = image;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	barrier.subresourceRange.baseArrayLayer = 0;
+	barrier.subresourceRange.layerCount = 1;
+	barrier.subresourceRange.levelCount = 1;
+
+	i32 mip_width = width;
+	i32 mip_height = height;
+
+	for(u32 i = 1; i < mip_levels; ++i) {
+		barrier.subresourceRange.baseMipLevel = i - 1;
+		barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+		vkCmdPipelineBarrier(
+			cmd_buffer, 
+			VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 
+			0, nullptr, 
+			0, nullptr, 
+			1, &barrier
+		);
+
+		VkImageBlit blit = {};
+		blit.srcOffsets[0] 					= {0, 0, 0};
+		blit.srcOffsets[1] 					= {mip_width, mip_height, 1};
+		blit.srcSubresource.aspectMask 		= VK_IMAGE_ASPECT_COLOR_BIT;
+		blit.srcSubresource.mipLevel 		= i - 1;
+		blit.srcSubresource.baseArrayLayer 	= 0;
+		blit.srcSubresource.layerCount 		= 1;
+		blit.dstOffsets[0] 					= {0, 0, 0};
+		blit.dstOffsets[1] 					= {mip_width > 1 ? mip_width / 2 : 1, mip_height > 1 ? mip_height / 2 : 1, 1};
+		blit.dstSubresource.aspectMask 		= VK_IMAGE_ASPECT_COLOR_BIT;
+		blit.dstSubresource.mipLevel 		= i;
+		blit.dstSubresource.baseArrayLayer 	= 0;
+		blit.dstSubresource.layerCount 		= 1;
+		vkCmdBlitImage(cmd_buffer, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+
+		barrier.oldLayout 		= VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		barrier.newLayout 		= VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		barrier.srcAccessMask 	= VK_ACCESS_TRANSFER_READ_BIT;
+		barrier.dstAccessMask 	= VK_ACCESS_SHADER_READ_BIT;
+		vkCmdPipelineBarrier(
+			cmd_buffer, 
+			VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 
+			0, nullptr, 
+			0, nullptr, 
+			1, &barrier
+		);
+
+		if(mip_width > 1) mip_width /= 2;
+		if(mip_height > 1) mip_height /= 2;
+	}
+
+	barrier.subresourceRange.baseMipLevel = mip_levels - 1;
+	barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	vkCmdPipelineBarrier(
+		cmd_buffer, 
+		VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 
+		0, nullptr, 
+		0, nullptr, 
+		1, &barrier
+	);
+
+	vk_end_single_time_commands(device, cmd_buffer, queue, command_pool);
 }
 
 func vk_create_texture_from_image_stb(VkPhysicalDevice physical_device, VkDevice device, VkQueue queue, VkCommandPool command_pool, const char* texture_path) -> texture_buffer {
@@ -241,6 +343,8 @@ func vk_create_texture_from_image_stb(VkPhysicalDevice physical_device, VkDevice
 	stbi_uc* pixels = stbi_load(texture_path, &tex_width, &tex_height, &tex_channels, STBI_rgb_alpha);
 	VkDeviceSize image_size = tex_width * tex_height * 4;
 	if(pixels == nullptr) throw std::runtime_error("Nah, there are no image man :()");
+	
+	result.mip_levels = floor(log2(fmax(tex_width, tex_height))) + 1;
 
 	VkBuffer staiging_buffer;
 	VkDeviceMemory staiging_memory;
@@ -252,16 +356,96 @@ func vk_create_texture_from_image_stb(VkPhysicalDevice physical_device, VkDevice
 	vkUnmapMemory(device, staiging_memory);
 	stbi_image_free(pixels);
 
-	result.vk_data = vk_create_image(physical_device, device, tex_width, tex_height, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-	vk_transition_image_layout(device, result.vk_data.image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, queue, command_pool);
+	result.vk_data = vk_create_image(physical_device, device, tex_width, tex_height, result.mip_levels, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	vk_transition_image_layout(device, result.vk_data.image, result.mip_levels, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, queue, command_pool);
 	vk_copy_buffer_to_image(device, queue, command_pool, staiging_buffer, result.vk_data.image, tex_width, tex_height);
-	vk_transition_image_layout(device, result.vk_data.image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, queue, command_pool);
+	//vk_transition_image_layout(device, result.vk_data.image, result.mip_levels, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, queue, command_pool);
 
 	vkDestroyBuffer(device, staiging_buffer, nullptr);
 	vkFreeMemory(device, staiging_memory, nullptr);
 
-	result.image_view 		= vk_create_image_view(device, result.vk_data.image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+	result.image_view 		= vk_create_image_view(device, result.vk_data.image, result.mip_levels, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 	result.image_sampler 	= vk_create_texture_sampler(physical_device, device);
+
+	vk_generate_mipmaps(physical_device, device, queue, command_pool, result.vk_data.image, VK_FORMAT_R8G8B8A8_SRGB, tex_width, tex_height, result.mip_levels);
+
+	return result;
+}
+
+namespace std {
+	template<>
+	struct hash<vk_vertex> {
+		size_t operator()(vk_vertex const& vertex) const {
+			return (
+				((hash<glm::vec3>()(v3_to_glm(vertex.position)) ^ 
+				(hash<glm::vec3>()(v3_to_glm(vertex.color)) << 1)) >> 1) ^
+				(hash<glm::vec2>()(v2_to_glm(vertex.tex_coord)) << 1)
+			);
+		}
+	};
+}
+
+func load_model(VkPhysicalDevice physical_device, VkDevice device, VkQueue queue, VkCommandPool pool, const char* model_path, const char* texture_path) -> model<u32> {
+	model<u32> result = {};
+	tinyobj::attrib_t attrib;
+	std::string warn, err;
+	std::vector<tinyobj::shape_t> shapes;
+	std::vector<tinyobj::material_t> materials;
+	std::vector<vk_vertex> vertices;
+	std::vector<u32> indices;
+
+	if(!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, model_path)) {
+		throw std::runtime_error("Nah, you cant do that! :(");
+	}
+
+	std::unordered_map<vk_vertex, u32> unique_vertices = {};
+	for(u32 i = 0; i < shapes.size(); ++i) {
+		for(u32 indice = 0; indice < shapes[i].mesh.indices.size(); ++indice) {
+			vk_vertex vertex = {
+				.position = {
+					.x = attrib.vertices[3 * shapes[i].mesh.indices[indice].vertex_index + 0],
+					.y = attrib.vertices[3 * shapes[i].mesh.indices[indice].vertex_index + 1],
+					.z = attrib.vertices[3 * shapes[i].mesh.indices[indice].vertex_index + 2]
+				},
+				.color = {1.0f, 1.0f, 1.0f},
+				.tex_coord = {
+					.x = attrib.texcoords[2 * shapes[i].mesh.indices[indice].texcoord_index + 0],
+					.y = 1.0f - attrib.texcoords[2 * shapes[i].mesh.indices[indice].texcoord_index + 1],
+				},
+			};
+
+			if(unique_vertices.count(vertex) == 0) {
+				unique_vertices[vertex] = vertices.size();
+				vertices.push_back(vertex);
+			}
+
+			indices.push_back(unique_vertices[vertex]);
+		}
+	}
+
+	result.vertices = create_vertex_buffer(
+		physical_device, 
+		device,
+		queue,
+		pool,
+		vertices.size() * sizeof(vk_vertex), 
+		vertices.data(),
+		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, 
+		VK_SHARING_MODE_EXCLUSIVE
+	);
+
+	result.indices = create_index_buffer<u32>(
+		physical_device, 
+		device, 
+		queue, 
+		pool, 
+		indices.size() * sizeof(u32), 
+		indices.data(), 
+		VK_BUFFER_USAGE_INDEX_BUFFER_BIT, 
+		VK_SHARING_MODE_EXCLUSIVE
+	);
+
+	result.texture = vk_create_texture_from_image_stb(physical_device, device, queue, pool, texture_path);
 
 	return result;
 }
@@ -536,7 +720,7 @@ func vk_create_images_for_swap_chain(vk_context *ctx) -> u32 {
 	return result;
 }
 
-func vk_create_image_view(VkDevice device, VkImage image, VkFormat format, VkImageViewType view_type, VkImageAspectFlags aspect_mask) -> VkImageView {
+func vk_create_image_view(VkDevice device, VkImage image, u32 mip_levels, VkFormat format, VkImageViewType view_type, VkImageAspectFlags aspect_mask) -> VkImageView {
 	VkImageView result = {};
 	VkImageViewCreateInfo create_info = {};
 	create_info.sType 		= VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -549,7 +733,7 @@ func vk_create_image_view(VkDevice device, VkImage image, VkFormat format, VkIma
 	create_info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
 	create_info.subresourceRange.aspectMask = aspect_mask;
 	create_info.subresourceRange.baseMipLevel = 0;
-	create_info.subresourceRange.levelCount = 1;
+	create_info.subresourceRange.levelCount = mip_levels;
 	create_info.subresourceRange.baseArrayLayer = 0;
 	create_info.subresourceRange.layerCount = 1;
 	VkResult error = vkCreateImageView(device, &create_info, nullptr, &result);
@@ -705,13 +889,14 @@ func vk_record_comand_buffer(vk_context ctx, VkCommandBuffer command_buffer, u32
 	vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ctx.graph_pipeline);
 
 	VkDeviceSize offsets[] = {0};
-	vkCmdBindVertexBuffers(command_buffer, 0, 1, &ctx.vtex_buffer.buffer, offsets);
-	vkCmdBindIndexBuffer(command_buffer, ctx.idex_buffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+	vkCmdBindVertexBuffers(command_buffer, 0, 1, &ctx.viking_room.vertices.buffer, offsets);
+	vkCmdBindIndexBuffer(command_buffer, ctx.viking_room.indices.buffer, 0, VK_INDEX_TYPE_UINT32);
 
 	vkCmdSetViewport(command_buffer, 0, 1, &ctx.viewport);
 	vkCmdSetScissor(command_buffer, 0, 1, &ctx.scissor);
 	vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ctx.pipeline_layout, 0, 1, &ctx.uni_descriptor_sets[image_idx], 0, nullptr);
-	vkCmdDrawIndexed(command_buffer, ctx.idex_buffer.get_el_count(), 1, 0, 0, 1);
+	vkCmdDrawIndexed(command_buffer, ctx.viking_room.indices.get_el_count(), 1, 0, 0, 1);
+	// vkCmdDrawIndexed(command_buffer, ctx.idex_buffer.get_el_count(), 1, 0, 0, 1);
 	// vkCmdDraw(command_buffer, 3, 1, 0, 0);
 	vkCmdEndRenderPass(command_buffer);
 	vkEndCommandBuffer(command_buffer);
@@ -810,8 +995,9 @@ func create_vertex_buffer(VkPhysicalDevice physical_device, VkDevice device, VkQ
 	return result;
 }
 
-func create_index_buffer(VkPhysicalDevice physical_device, VkDevice device, VkQueue queue, VkCommandPool pool, VkDeviceSize size, void* index_data, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags properties) -> buffer<u16> {
-	buffer<u16> result = {};
+template<typename T>
+func create_index_buffer(VkPhysicalDevice physical_device, VkDevice device, VkQueue queue, VkCommandPool pool, VkDeviceSize size, void* index_data, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags properties) -> buffer<T> {
+	buffer<T> result = {};
 	result.size = size;
 
 	VkBuffer staiging_buffer;
@@ -882,6 +1068,7 @@ func update_uniform_buffer(uniform_buffer<uniform_buffer_object> *buffers, u32 w
 	uniform_buffer_object ubo = {};
 	printf("time_elapsed: %u\n", time_elapsed);
 	ubo.model = my_mat4_to_glm_mat4(glm::rotate(glm::mat4(1.0f), glm::radians((f32)((f32)time_elapsed * 360.0f * 1.0 / 10000.0f)), glm::vec3(0.0, 0.0, 1.0f)));
+	//ubo.model = TransposeMatrix(translation_matrix(V3(1,1,sin((f32)time_elapsed * 10 * 1.0f / 10000.0f))));
 	ubo.view = my_mat4_to_glm_mat4(glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0), glm::vec3(0.0, 0.0, 1.0f)));
 	ubo.proj = my_mat4_to_glm_mat4(glm::perspective(glm::radians(45.0f), width / (f32)height, 0.1f, 10.0f));
 	ubo.proj.Value2_2 *= -1;
@@ -937,7 +1124,7 @@ func vk_context::make(HWND hwnd) -> vk_context {
 	result.swap_chain_image_format	= vk_choose_surface_format			(result.physical_device, result.surface).format;
 
 	for(u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-		result.swap_chain_image_views[i] = vk_create_image_view(result.device, result.swap_chain_images[i], vk_choose_surface_format(result.physical_device, result.surface).format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+		result.swap_chain_image_views[i] = vk_create_image_view(result.device, result.swap_chain_images[i], 1, vk_choose_surface_format(result.physical_device, result.surface).format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 	}
 
 	// NOTE(DH): Pipeline configuration and creation is down there!
@@ -1117,7 +1304,7 @@ func vk_context::make(HWND hwnd) -> vk_context {
 	
 	// u16 indices[] = {0, 1, 2, 2, 3, 0, 4, 6, 5, 4, 7, 6, 3, 2, 6, 3, 6, 7, 0, 3, 7, 0, 7, 4, 0, 4, 1, 1, 4, 5, 2, 1, 5, 5, 6, 2};
 	u16 indices[] = {4, 5, 6, 6, 7, 4, 0, 1, 2, 2, 3, 0};
-	result.idex_buffer = create_index_buffer(
+	result.idex_buffer = create_index_buffer<u16>(
 			result.physical_device, 
 			result.device, 
 			result.queue, 
@@ -1131,6 +1318,8 @@ func vk_context::make(HWND hwnd) -> vk_context {
 	result.uni_descriptor_pool = vk_create_descriptor_pool(result.device, MAX_FRAMES_IN_FLIGHT, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
 
 	result.simple_texture = vk_create_texture_from_image_stb(result.physical_device, result.device, result.queue, result.command_pool, "..\\data\\textures\\texture.jpg");
+	// result.simple_texture = vk_create_texture_from_image_stb(result.physical_device, result.device, result.queue, result.command_pool, "..\\data\\textures\\viking_room.png");
+	result.viking_room = load_model(result.physical_device, result.device, result.queue, result.command_pool, "..\\data\\models\\viking_room.obj", "..\\data\\textures\\viking_room.png");
 
 	for(u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
 		result.uni_buffer[i] = vk_create_uniform_buffer(result.physical_device, result.device);
@@ -1140,10 +1329,14 @@ func vk_context::make(HWND hwnd) -> vk_context {
 		buffer_info.offset = 0;
 		buffer_info.range = sizeof(uniform_buffer_object);
 
+		// VkDescriptorImageInfo image_info = {};
+		// image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		// image_info.imageView = result.simple_texture.image_view;
+		// image_info.sampler = result.simple_texture.image_sampler;
 		VkDescriptorImageInfo image_info = {};
 		image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		image_info.imageView = result.simple_texture.image_view;
-		image_info.sampler = result.simple_texture.image_sampler;
+		image_info.imageView = result.viking_room.texture.image_view;
+		image_info.sampler = result.viking_room.texture.image_sampler;
 
 		VkWriteDescriptorSet write_descs[] = {{}, {}};
 		write_descs[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1183,7 +1376,7 @@ func vk_recreate_swap_chain(vk_context* ctx, u32 new_width, u32 new_height) -> v
 	ctx->depth_texture = vk_create_depth_resources(ctx->physical_device, ctx->device, ctx->queue, ctx->command_pool, ctx->swap_chain_extent);
 
 	for(u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-		ctx->swap_chain_image_views	[i] = vk_create_image_view(ctx->device, ctx->swap_chain_images[i], vk_choose_surface_format(ctx->physical_device, ctx->surface).format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+		ctx->swap_chain_image_views	[i] = vk_create_image_view(ctx->device, ctx->swap_chain_images[i], 1, vk_choose_surface_format(ctx->physical_device, ctx->surface).format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 		VkImageView attachments		[] 	= {ctx->swap_chain_image_views[i], ctx->depth_texture.image_view};
 		ctx->swap_chain_framebuffers[i] = vk_allocate_frame_buffer(*ctx, ctx->only_pass, attachments, _countof(attachments), 1);
 	}
