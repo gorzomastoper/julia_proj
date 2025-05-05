@@ -61,7 +61,7 @@ func vk_create_texture_sampler(VkPhysicalDevice physical_device, VkDevice device
 	create_info.compareOp 				= VK_COMPARE_OP_ALWAYS;
 	create_info.mipmapMode 				= VK_SAMPLER_MIPMAP_MODE_LINEAR;
 	create_info.mipLodBias 				= 0.0f;
-	create_info.minLod 					= 0.0f;
+	create_info.minLod 					= 0;
 	create_info.maxLod 					= VK_LOD_CLAMP_NONE;
 	vkCreateSampler(device, &create_info, nullptr, &result);
 	return result;
@@ -1066,7 +1066,7 @@ func vk_create_uniform_buffer(VkPhysicalDevice physical_device, VkDevice device)
 
 func update_uniform_buffer(uniform_buffer<uniform_buffer_object> *buffers, u32 width, u32 height, u32 image_idx, u32 time_elapsed) -> void {
 	uniform_buffer_object ubo = {};
-	printf("time_elapsed: %u\n", time_elapsed);
+	//printf("time_elapsed: %u\n", time_elapsed);
 	ubo.model = my_mat4_to_glm_mat4(glm::rotate(glm::mat4(1.0f), glm::radians((f32)((f32)time_elapsed * 360.0f * 1.0 / 10000.0f)), glm::vec3(0.0, 0.0, 1.0f)));
 	//ubo.model = TransposeMatrix(translation_matrix(V3(1,1,sin((f32)time_elapsed * 10 * 1.0f / 10000.0f))));
 	ubo.view = my_mat4_to_glm_mat4(glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0), glm::vec3(0.0, 0.0, 1.0f)));
